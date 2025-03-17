@@ -9,33 +9,40 @@ import SwiftUI
 
 struct PopupView4: View {
     @Binding var showPopupSettings: Bool // Binding to control the popup visibility
-    @State private var EventName: String = ""
-    @State private var EventLocation: String = ""
-    @State private var link: String = ""
-    @State private var selectedOption: String = "Option 1"
-    let options = ["English", "Spanish"]
+//    enum Language: String, CaseIterable, Identifiable {
+//        case English, Spanish
+//        var id: Self { self }
+//    }
+    @Binding var isSpanish: Bool
+
+ //  @State private var selectedLanguage: Language = .Spanish
 
     var body: some View {
+        
+        
         ZStack {
-            Color.black.opacity(0.1) // This creates a dimmed background behind the popup
+            Color.white.opacity(0.5) // This creates a dimmed background behind the popup
                 .edgesIgnoringSafeArea(.all)
                 .onTapGesture {
                     // Close the popup if the background is tapped
                     showPopupSettings = false
                 }
-
             VStack {
                 Text("Settings")
                     .font(.largeTitle)
-                    .padding(.bottom)
+                    .multilineTextAlignment(.center)
+                    .padding(.top, 30.0)
                     .fontWeight(.bold)
 
-                Picker("Pick a language:", selection: $selectedOption) {
-                    ForEach(options, id: \.self) { option in
-                        Text(option)
-                    }
-                }
-                .pickerStyle(MenuPickerStyle())  // Use WheelPickerStyle for better compatibility in this case
+                
+                Picker("Language", selection: $isSpanish, content: {
+                        Text("English").tag(false)
+                        Text("Spanish").tag(true)
+                    })
+                Text("Selected L: \(isSpanish)")
+                
+                
+                .pickerStyle(.segmented)  // Use WheelPickerStyle for better compatibility in this case
                 .padding()
 
                 HStack {
@@ -55,12 +62,14 @@ struct PopupView4: View {
                      //   .foregroundColor(.white)
                      //   .cornerRadius(8)
                 }
+                .padding()
             }
             .frame(width: 450, height: 350)
-            .background(Color.black) // Background color for the popup
+            .background() // Background color for the popup
             .cornerRadius(15)
             .shadow(radius: 10)
         }
+   //     .windowResizeBehavior()
     }
 }
 
