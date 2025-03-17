@@ -11,9 +11,9 @@ struct ContentView: View {
     @State private var showPopupDelete = false
     @State private var showPopupArchive = false
     @State private var showPopupSettings = false
-    @State private var isSpanish = false
+   // @State private var isSpanish = false
   
-    var body: some View {        
+    var body: some View {
         HStack{
         Spacer()
             VStack(alignment: .leading) {
@@ -21,7 +21,7 @@ struct ContentView: View {
                 Button("Create Event", systemImage: "calendar.badge.plus") {
                     showPopupCreate.toggle()
                 }
-                Button("Archive Event", systemImage: "cloud.fill") {
+                Button("Archive Event", systemImage: "square.and.arrow.down.fill") {
                     showPopupArchive.toggle()
                     
                 }
