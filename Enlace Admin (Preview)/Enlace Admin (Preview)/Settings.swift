@@ -8,71 +8,60 @@
 import SwiftUI
 
 struct PopupView4: View {
-    @Binding var showPopupSettings: Bool // Binding to control the popup visibility
-//    enum Language: String, CaseIterable, Identifiable {
-//        case English, Spanish
-//        var id: Self { self }
-//    }
-    @Binding var isSpanish: Bool
-
- //  @State private var selectedLanguage: Language = .Spanish
+    @Binding var showPopupSettings: Bool // Control popup visibility
+    @Binding var isSpanish: Bool       // Control language selection
 
     var body: some View {
-        
-        
         ZStack {
-            Color.white.opacity(0.5) // This creates a dimmed background behind the popup
+            // Dimmed background
+            Color.black.opacity(0.5)
                 .edgesIgnoringSafeArea(.all)
                 .onTapGesture {
-                    // Close the popup if the background is tapped
                     showPopupSettings = false
                 }
+
             VStack {
-                Text("Settings")
+                // Title
+                Text(isSpanish ? "Configuración" : "Settings")
                     .font(.largeTitle)
-                    .multilineTextAlignment(.center)
-                    .padding(.top, 30.0)
+                //    .multilineTextAlignment(.center)
+                    .padding(.top, 30)
                     .fontWeight(.bold)
 
-                
-                Picker("Language", selection: $isSpanish, content: {
-                        Text("English").tag(false)
-                        Text("Spanish").tag(true)
-                    })
-                
-                
-                .pickerStyle(.segmented)  // Use WheelPickerStyle for better compatibility in this case
+                // Language Picker
+                Picker(isSpanish ? "Idioma" : "Language", selection: $isSpanish) {
+                    Text(isSpanish ? "Ingles" : "English").tag(false)
+                    Text(isSpanish ? "Espanol" : "Spanish").tag(true)
+                }
+                .pickerStyle(SegmentedPickerStyle())
                 .padding()
 
-                HStack {
-                    // Add any necessary buttons or content here.
-                }
-                .padding(.bottom)
-
+                Spacer()
                 
-
+                // Close Button
                 Button(action: {
-                    // Close the popup
                     showPopupSettings = false
                 }) {
-                    Text("Close")
-                      //  .padding()
-                       // .background(Color.gray)
-                     //   .foregroundColor(.white)
-                     //   .cornerRadius(8)
+                    Text(isSpanish ? "Cerrar" : "Close")
+                    //    .font(.headline)
+                      //  .foregroundColor(.white)
+                        //.padding()
+                      //  .frame(maxWidth: .infinity)
+                        //.background(Color.blue)
+                        //.cornerRadius(8)
                 }
-                .padding()
+            //    .padding(.horizontal)
+                .padding(.bottom, 20)
+
             }
-            .frame(width: 450, height: 350)
-            .background() // Background color for the popup
+            .frame(width: 350, height: 260)
+            .background()
             .cornerRadius(15)
             .shadow(radius: 10)
+            .padding()
         }
-   //     .windowResizeBehavior()
     }
 }
-
-
 
 #Preview {
     ContentView()

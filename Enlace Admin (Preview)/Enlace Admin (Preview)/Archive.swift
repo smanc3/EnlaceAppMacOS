@@ -8,61 +8,67 @@
 import SwiftUI
 
 struct PopupView3: View {
-    @Binding var showPopupArchive: Bool // Binding to control the popup visibility
-    @State private var EventName: String = ""
-    @State private var EventLocation: String = ""
-    @State private var link: String = ""
+    @Binding var showPopupArchive: Bool  // Control popup visibility
+    @Binding var isSpanish: Bool      // Control language selection
+
+    @State private var eventName: String = ""
 
     var body: some View {
         ZStack {
-            Color.black.opacity(0.1) // This creates a dimmed background behind the popup
+            // Dimmed background
+            Color.black.opacity(0.1)
                 .edgesIgnoringSafeArea(.all)
                 .onTapGesture {
-                    // Close the popup if the background is tapped
                     showPopupArchive = false
                 }
 
             VStack {
-                Text("Archive Event")
+                // Title
+                Text(isSpanish ? "Archivar Evento" : "Archive Event")
                     .font(.largeTitle)
                     .padding(.bottom)
                     .fontWeight(.bold)
+
                 Form {
-                    TextField("Event Name:", text: $EventName)
-                    //    .padding()
-                    
-                        .padding()
+                    // Event Name TextField
+                    TextField(
+                        text: $eventName,
+                        prompt: Text(isSpanish ? "Requerido" : "Required")
+                    ) {
+                        Text(isSpanish ? "Nombre del Evento" : "Event Name")
+                    }
+                //    .autocapitalization(.words)
+                    .padding()
                 }
                 .padding([.top, .leading, .trailing], 15.0)
-                
-                DatePicker(selection: .constant(Date()), label: { Text("Date and Time") })
-                    .padding(.bottom)
 
-                
+                // DatePicker
+                DatePicker(
+                    isSpanish ? "Fecha y Hora" : "Date and Time",
+                    selection: .constant(Date())
+                )
                 .padding(.bottom)
 
-                HStack {
-                    
-                }
-                .padding(.bottom)
-                
+                // Archive and Cancel Buttons
                 Button(action: {
-                    // Close the popup
+                    // Archive event logic
                     showPopupArchive = false
                 }) {
-                    Text("Archive Event")
+                    Text(isSpanish ? "Archivar Evento" : "Archive Event")
+                       // .foregroundColor(.blue)
+                      //  .padding()
                 }
-                .padding()
+
                 Button(action: {
-                    // Close the popup
                     showPopupArchive = false
                 }) {
-                    Text("Cancel")
+                    Text(isSpanish ? "Cancelar" : "Cancel")
+                       // .foregroundColor(.gray)
+                       // .padding()
                 }
-                
             }
-            .frame(width: 450, height: 350)
-            .background(Color.black) // Use white for the popup background so it's distinguishable
+            .frame(width: 450, height: 360)
+            .background()
             .cornerRadius(15)
             .shadow(radius: 10)
         }
@@ -72,4 +78,3 @@ struct PopupView3: View {
 #Preview {
     ContentView()
 }
-

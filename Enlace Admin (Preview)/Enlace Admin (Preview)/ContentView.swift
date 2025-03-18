@@ -11,53 +11,59 @@ struct ContentView: View {
     @State private var showPopupDelete = false
     @State private var showPopupArchive = false
     @State private var showPopupSettings = false
-    @State private var isSpanish = false
-  
+    @State private var isSpanish = false  // Language state
+
     var body: some View {
         HStack {
             Spacer()
+            
             VStack(alignment: .leading) {
                 Spacer()
-                Button("Create Event", systemImage: "calendar.badge.plus") {
+                
+                Button(isSpanish ? "Crear Evento" : "Create Event", systemImage: "calendar.badge.plus") {
                     showPopupCreate.toggle()
                 }
-                Button("Archive Event", systemImage: "square.and.arrow.down.fill") {
+                
+                Button(isSpanish ? "Archivar Evento" : "Archive Event", systemImage: "square.and.arrow.down.fill") {
                     showPopupArchive.toggle()
                 }
-                Button("Delete Event", systemImage: "trash.fill") {
+                
+                Button(isSpanish ? "Eliminar Evento" : "Delete Event", systemImage: "trash.fill") {
                     showPopupDelete.toggle()
                 }
                 
                 Spacer()
                 Spacer()
                 Spacer()
-                Button("Settings", systemImage: "gear") {
+                
+                Button(isSpanish ? "Configuración" : "Settings", systemImage: "gear") {
                     showPopupSettings.toggle()
                 }
+                
                 Spacer()
             }
-            
-            ZStack {
-                CalendarView()
-                
-                if showPopupCreate {
-                    PopupView(showPopupCreate: $showPopupCreate)
-                } else if showPopupDelete {
-                    PopupView2(showPopupDelete: $showPopupDelete)
-                } else if showPopupArchive {
-                    PopupView3(showPopupArchive: $showPopupArchive)
-                } else if showPopupSettings {
-                    PopupView4(showPopupSettings: $showPopupSettings, isSpanish: $isSpanish)
-                }
-            }
 
-
+            CalendarView(isSpanish: $isSpanish)  // Your calendar view
+                .overlay(
+                    Group {
+                        if showPopupCreate {
+                            PopupView(showPopupCreate: $showPopupCreate, isSpanish: $isSpanish)
+                        } else if showPopupDelete {
+                            PopupView2(showPopupDelete: $showPopupDelete, isSpanish: $isSpanish)
+                        } else if showPopupArchive {
+                            PopupView3(showPopupArchive: $showPopupArchive, isSpanish: $isSpanish)
+                        } else if showPopupSettings {
+                            PopupView4(showPopupSettings: $showPopupSettings, isSpanish: $isSpanish)
+                        }
+                    }
+                )
 
         }
-        .background(Color(.black))
+        .background()
     }
 }
 
 #Preview {
     ContentView()
 }
+
