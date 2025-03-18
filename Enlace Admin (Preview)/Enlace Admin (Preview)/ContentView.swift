@@ -11,11 +11,11 @@ struct ContentView: View {
     @State private var showPopupDelete = false
     @State private var showPopupArchive = false
     @State private var showPopupSettings = false
-   // @State private var isSpanish = false
+    @State private var isSpanish = false
   
     var body: some View {
-        HStack{
-        Spacer()
+        HStack {
+            Spacer()
             VStack(alignment: .leading) {
                 Spacer()
                 Button("Create Event", systemImage: "calendar.badge.plus") {
@@ -23,9 +23,8 @@ struct ContentView: View {
                 }
                 Button("Archive Event", systemImage: "square.and.arrow.down.fill") {
                     showPopupArchive.toggle()
-                    
                 }
-                Button(" Delete Event", systemImage: "trash.fill") {
+                Button("Delete Event", systemImage: "trash.fill") {
                     showPopupDelete.toggle()
                 }
                 
@@ -34,42 +33,26 @@ struct ContentView: View {
                 Spacer()
                 Button("Settings", systemImage: "gear") {
                     showPopupSettings.toggle()
-                    //isSpanish.toggle()
                 }
-                
-               Spacer()
+                Spacer()
             }
-            CalendarView()
-                .overlay(
-                    // Show the popup when the state is true
-                    Group {
-                        if showPopupCreate {
-                            PopupView(showPopupCreate: $showPopupCreate)
-                        }
-                    }
-                )
-                .overlay(
-                    Group {
-                    if showPopupDelete {
-                        PopupView2(showPopupDelete: $showPopupDelete)
-                        }
-                    }
-                )
-                .overlay(
-                    Group {
-                    if showPopupArchive {
-                        PopupView3(showPopupArchive: $showPopupArchive)
-                        }
-                    }
-                )
-                .overlay(
-                    Group {
-                    if showPopupSettings {
-                        PopupView4(showPopupSettings: $showPopupSettings)
-                        }
-                    }
-                )
+            
+            ZStack {
+                CalendarView()
                 
+                if showPopupCreate {
+                    PopupView(showPopupCreate: $showPopupCreate)
+                } else if showPopupDelete {
+                    PopupView2(showPopupDelete: $showPopupDelete)
+                } else if showPopupArchive {
+                    PopupView3(showPopupArchive: $showPopupArchive)
+                } else if showPopupSettings {
+                    PopupView4(showPopupSettings: $showPopupSettings, isSpanish: $isSpanish)
+                }
+            }
+
+
+
         }
         .background(Color(.black))
     }

@@ -13,7 +13,7 @@ struct PopupView4: View {
 //        case English, Spanish
 //        var id: Self { self }
 //    }
-   // @Binding var isSpanish: Bool
+    @Binding var isSpanish: Bool
 
  //  @State private var selectedLanguage: Language = .Spanish
 
@@ -35,11 +35,10 @@ struct PopupView4: View {
                     .fontWeight(.bold)
 
                 
-               // Picker("Language", selection: $isSpanish, content: {
-               //         Text("English").tag(false)
-               //         Text("Spanish").tag(true)
-               //     })
-               // Text("Selected L: \(isSpanish)")
+                Picker("Language", selection: $isSpanish, content: {
+                        Text("English").tag(false)
+                        Text("Spanish").tag(true)
+                    })
                 
                 
                 .pickerStyle(.segmented)  // Use WheelPickerStyle for better compatibility in this case
