@@ -69,7 +69,7 @@ struct CalendarView: View {
                     .shadow(radius: 10)
                     .frame(maxWidth: 500, maxHeight: 600) // Limit the size
                 
-                VStack(spacing: 0) {
+                VStack(spacing: 10) {
                     // Month Header Section
                     HStack {
                         Button(action: goToPreviousMonth) {
@@ -106,7 +106,7 @@ struct CalendarView: View {
                                 .frame(maxWidth: .infinity) // Ensure equal spacing
                         }
                     }
-                    .padding(.vertical, 5)
+                    .padding(.vertical, 6)
                     
                     Divider()
                     
@@ -129,7 +129,7 @@ struct CalendarView: View {
                             }
                         }
                     }
-                    .padding()
+                  //  .padding()
                     Spacer()
                 }
                 .padding()
@@ -139,4 +139,7 @@ struct CalendarView: View {
         }
         .background(Color(.gray))
     }
+}
+#Preview {
+    ContentView()
 }

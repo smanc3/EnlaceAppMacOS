@@ -60,7 +60,11 @@ struct ContentView: View {
 
         }
         .background()
+      //  .frame(maxWidth: 700, maxHeight: 400)
+       // .windowStyle()
     }
+        //.controlSize(.regular)
+    //    .frame(maxWidth: 500, maxHeight: 600)
 }
 
 #Preview {

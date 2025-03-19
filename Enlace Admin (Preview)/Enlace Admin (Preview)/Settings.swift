@@ -25,6 +25,7 @@ struct PopupView4: View {
                 Text(isSpanish ? "Configuración" : "Settings")
                     .font(.largeTitle)
                 //    .multilineTextAlignment(.center)
+                    .multilineTextAlignment(.trailing)
                     .padding(.top, 30)
                     .fontWeight(.bold)
 

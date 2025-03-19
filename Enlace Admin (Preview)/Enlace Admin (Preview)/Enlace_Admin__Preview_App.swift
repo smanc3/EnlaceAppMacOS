@@ -17,6 +17,8 @@ struct Enlace_Admin__Preview_App: App {
         
         WindowGroup {
             ContentView()
+                .frame(maxWidth: 700, maxHeight: 400)
         }
+        .windowResizability(.contentSize)
     }
 }
