@@ -37,39 +37,52 @@ struct PopupView2: View {
                     ) {
                         Text(isSpanish ? "Nombre del Evento" : "Event Name")
                     }
-               //     .autocapitalization(.words)
-                    .padding()
+                    // Remove inner padding, let Form handle it
+                    // .padding()
                 }
-                .padding([.top, .leading, .trailing], 15.0)
+                // Remove outer padding for Form, rely on main VStack padding
+                // .padding([.top, .leading, .trailing], 15.0)
 
                 // DatePicker
                 DatePicker(
                     isSpanish ? "Fecha y Hora" : "Date and Time",
                     selection: .constant(Date())
                 )
+                // Keep some bottom padding to separate from buttons
                 .padding(.bottom)
 
-                // Delete and Cancel Buttons
-                Button(action: {
-                    // Logic for deleting event
-                    showPopupDelete = false
-                }) {
-                    Text(isSpanish ? "Eliminar Evento" : "Delete Event")
-                        .foregroundColor(.red)
-                       // .padding()
+                // Delete and Cancel Buttons in an HStack
+                HStack {
+                    // Cancel Button
+                    Button(action: {
+                        showPopupDelete = false
+                    }) {
+                        Text(isSpanish ? "Cancelar" : "Cancel")
+                           // .foregroundColor(.gray)
+                    }
+                    .buttonStyle(.bordered) // Add border for visual separation
+                    .keyboardShortcut(.escape, modifiers: []) // Allow Esc to cancel
+                    
+                    Spacer()
+                    
+                    // Delete Button
+                    Button(action: {
+                        // Logic for deleting event
+                        showPopupDelete = false
+                    }) {
+                        Text(isSpanish ? "Eliminar Evento" : "Delete Event")
+                            .foregroundColor(.white) // White text on red
+                    }
+                    .buttonStyle(.borderedProminent) // Prominent style
+                    .tint(.red) // Red background
                 }
-
-                Button(action: {
-                    showPopupDelete = false
-                }) {
-                    Text(isSpanish ? "Cancelar" : "Cancel")
-                       // .foregroundColor(.gray)
-                       // .padding()
-                }
+                .padding(.top) // Add some space above buttons
             }
-            .frame(width: 450, height: 360)
-            .background()
-            .cornerRadius(15)
+            .padding()
+            .frame(width: 500)
+            .fixedSize(horizontal: false, vertical: true)
+            .background(Color(NSColor.windowBackgroundColor))
+            .cornerRadius(12)
             .shadow(radius: 10)
         }
     }

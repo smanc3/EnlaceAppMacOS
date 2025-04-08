@@ -5,18 +5,51 @@
 //  Created by Steven Mancilla on 2/7/25.
 //
 import SwiftUI
+import CloudKit
+import PDFKit
+
+// Model for calendar events
+struct CalendarEvent: Identifiable {
+    let id: CKRecord.ID
+    let title: String
+    let startDate: Date
+    let endDate: Date?
+    let location: String
+    let notes: String?
+    let pdfReference: CKRecord.Reference?
+    
+    init(record: CKRecord) {
+        self.id = record.recordID
+        self.title = record["title"] as? String ?? "Untitled Event"
+        self.startDate = record["startDate"] as? Date ?? Date()
+        self.endDate = record["endDate"] as? Date
+        self.location = record["location"] as? String ?? ""
+        self.notes = record["notes"] as? String
+        self.pdfReference = record["pdfReference"] as? CKRecord.Reference
+    }
+}
 
 struct CalendarView: View {
     @Binding var isSpanish: Bool  // Binding to control language selection
     @State private var selectedDate = Date()
     @State private var currentMonthDate = Date()
+    @State private var events: [CalendarEvent] = []
+    @State private var isLoading: Bool = false
+    @State private var errorMessage: String? = nil
+    @State private var selectedDateEvents: [CalendarEvent] = []
+    @State private var selectedEvent: CalendarEvent? = nil
+    @State private var isEventDetailPresented: Bool = false
+    
+    private let container = CKContainer(identifier: "iCloud.PearInc.EICT-iOS-16")
+    private var database: CKDatabase {
+        return container.publicCloudDatabase
+    }
     
     private var daysOfWeek: [String] {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: isSpanish ? "es_ES" : "en_US")
         return formatter.veryShortWeekdaySymbols
     }
-    
     
     private var currentMonth: [Date] {
         let calendar = Calendar.current
@@ -46,6 +79,13 @@ struct CalendarView: View {
         return calendar.isDate(date, inSameDayAs: selectedDate)
     }
     
+    private func hasEvent(date: Date) -> Bool {
+        let calendar = Calendar.current
+        return events.contains { event in
+            calendar.isDate(event.startDate, inSameDayAs: date)
+        }
+    }
+    
     private func monthYearString(date: Date) -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: isSpanish ? "es_ES" : "en_US")
@@ -61,13 +101,20 @@ struct CalendarView: View {
         currentMonthDate = Calendar.current.date(byAdding: .month, value: -1, to: currentMonthDate) ?? currentMonthDate
     }
     
+    private func updateSelectedDateEvents() {
+        let calendar = Calendar.current
+        selectedDateEvents = events.filter { event in
+            calendar.isDate(event.startDate, inSameDayAs: selectedDate)
+        }
+    }
+    
     var body: some View {
         VStack {
             ZStack {
                 Color.white
                     .cornerRadius(20)
                     .shadow(radius: 10)
-                    .frame(maxWidth: 500, maxHeight: 600) // Limit the size
+                    .frame(maxWidth: 500, maxHeight: 600)
                 
                 VStack(spacing: 10) {
                     // Month Header Section
@@ -103,7 +150,7 @@ struct CalendarView: View {
                             Text(day.prefix(1))
                                 .font(.headline)
                                 .foregroundColor(.orange)
-                                .frame(maxWidth: .infinity) // Ensure equal spacing
+                                .frame(maxWidth: .infinity)
                         }
                     }
                     .padding(.vertical, 6)
@@ -122,24 +169,297 @@ struct CalendarView: View {
                                     .frame(width: 30, height: 30)
                                     .background(isSelected(date: date) ? Color.orange : Color.clear)
                                     .cornerRadius(15)
+                                    .overlay(
+                                        Circle()
+                                            .fill(Color.blue)
+                                            .frame(width: 5, height: 5)
+                                            .offset(y: 10)
+                                            .opacity(hasEvent(date: date) ? 1 : 0)
+                                    )
                                     .onTapGesture {
                                         selectedDate = date
+                                        updateSelectedDateEvents()
                                     }
                                     .foregroundColor(isSelected(date: date) ? Color.white : Color.black)
                             }
                         }
                     }
-                  //  .padding()
+                    
+                    Divider()
+                    
+                    // Events for selected date
+                    VStack(alignment: .leading) {
+                        Text(isSpanish ? "Eventos para \(selectedDate, style: .date)" : "Events for \(selectedDate, style: .date)")
+                            .font(.headline)
+                            .padding(.bottom, 5)
+                        
+                        if selectedDateEvents.isEmpty {
+                            Text(isSpanish ? "No hay eventos programados" : "No events scheduled")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                        } else {
+                            ScrollView {
+                                ForEach(selectedDateEvents) { event in
+                                    EventListItemView(
+                                        event: event,
+                                        onTap: {
+                                            selectedEvent = event
+                                            isEventDetailPresented = true
+                                        }
+                                    )
+                                }
+                            }
+                            .frame(height: 150)
+                        }
+                    }
+                    .padding(.horizontal)
+                    .padding(.top, 5)
+                    
                     Spacer()
                 }
                 .padding()
             }
-            .frame(maxWidth: 500, maxHeight: 600) // Enforce consistent calendar size
+            .frame(maxWidth: 500, maxHeight: 600)
             .padding()
         }
         .background(Color(.gray))
+        .onAppear {
+            loadEvents()
+        }
+        .sheet(isPresented: $isEventDetailPresented) {
+            if let event = selectedEvent {
+                EventDetailView(event: event, isSpanish: isSpanish, container: container)
+            }
+        }
+    }
+    
+    private func loadEvents() {
+        isLoading = true
+        
+        let query = CKQuery(recordType: "CalendarEvent", predicate: NSPredicate(value: true))
+        query.sortDescriptors = [NSSortDescriptor(key: "startDate", ascending: true)]
+        
+        database.fetch(withQuery: query, inZoneWith: nil, desiredKeys: nil, resultsLimit: 50) { result in
+            DispatchQueue.main.async {
+                self.isLoading = false
+                
+                switch result {
+                case .success(let matchResults):
+                    let records = matchResults.matchResults.compactMap { (recordID, recordResult) -> CKRecord? in
+                        if case .success(let record) = recordResult {
+                            return record
+                        }
+                        return nil
+                    }
+                    self.events = records.map { CalendarEvent(record: $0) }
+                    self.updateSelectedDateEvents()
+                    
+                case .failure(let error):
+                    self.errorMessage = error.localizedDescription
+                }
+            }
+        }
     }
 }
-#Preview {
-    ContentView()
+
+// Detail view for an event
+struct EventDetailView: View {
+    let event: CalendarEvent
+    let isSpanish: Bool
+    let container: CKContainer
+    
+    @State private var linkedPDF: PDFDocument? = nil
+    @State private var isLoadingPDF: Bool = false
+    @State private var pdfError: String? = nil
+    
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 15) {
+                // Title
+                Text(event.title)
+                    .font(.title)
+                    .fontWeight(.bold)
+                
+                // Date and Time
+                HStack {
+                    Image(systemName: "calendar")
+                        .foregroundColor(.orange)
+                    
+                    VStack(alignment: .leading) {
+                        Text(DateFormatter.localizedString(from: event.startDate, dateStyle: .full, timeStyle: .none))
+                            .fontWeight(.medium)
+                        
+                        HStack {
+                            Text(DateFormatter.localizedString(from: event.startDate, dateStyle: .none, timeStyle: .short))
+                            
+                            if let endDate = event.endDate {
+                                Text(" - \(DateFormatter.localizedString(from: endDate, dateStyle: .none, timeStyle: .short))")
+                            }
+                        }
+                    }
+                }
+                
+                // Location
+                HStack {
+                    Image(systemName: "mappin.and.ellipse")
+                        .foregroundColor(.red)
+                    
+                    Text(event.location)
+                        .fontWeight(.medium)
+                }
+                
+                // Notes
+                if let notes = event.notes, !notes.isEmpty {
+                    Divider()
+                    
+                    Text(isSpanish ? "Notas:" : "Notes:")
+                        .font(.headline)
+                    
+                    Text(notes)
+                        .padding()
+                        .background(Color(NSColor.controlBackgroundColor))
+                        .cornerRadius(8)
+                }
+                
+                // Linked PDF
+                if event.pdfReference != nil {
+                    Divider()
+                    
+                    Text(isSpanish ? "Documento adjunto:" : "Attached Document:")
+                        .font(.headline)
+                    
+                    if isLoadingPDF {
+                        ProgressView()
+                            .padding()
+                    } else if let error = pdfError {
+                        Text(error)
+                            .foregroundColor(.red)
+                            .padding()
+                    } else if let pdf = linkedPDF {
+                        PDFPreview(document: pdf)
+                            .frame(height: 400)
+                            .cornerRadius(8)
+                    } else {
+                        Button(action: loadLinkedPDF) {
+                            Label(isSpanish ? "Cargar PDF" : "Load PDF", systemImage: "doc.text")
+                        }
+                        .buttonStyle(.bordered)
+                        .padding()
+                    }
+                }
+            }
+            .padding()
+        }
+        .navigationTitle(isSpanish ? "Detalles del Evento" : "Event Details")
+        .onAppear {
+            if event.pdfReference != nil {
+                loadLinkedPDF()
+            }
+        }
+    }
+    
+    private func loadLinkedPDF() {
+        guard let reference = event.pdfReference else { return }
+        isLoadingPDF = true
+        
+        let database = container.publicCloudDatabase
+        database.fetch(withRecordID: reference.recordID) { record, error in
+            DispatchQueue.main.async {
+                isLoadingPDF = false
+                
+                if let error = error {
+                    pdfError = isSpanish ? 
+                        "Error al cargar PDF: \(error.localizedDescription)" : 
+                        "Error loading PDF: \(error.localizedDescription)"
+                } else if let record = record, 
+                          let asset = record["pdfFile"] as? CKAsset,
+                          let fileURL = asset.fileURL,
+                          let document = PDFDocument(url: fileURL) {
+                    linkedPDF = document
+                } else {
+                    pdfError = isSpanish ? 
+                        "No se pudo cargar el PDF" : 
+                        "Could not load the PDF"
+                }
+            }
+        }
+    }
+}
+
+// PDF Preview
+struct PDFPreview: NSViewRepresentable {
+    let document: PDFDocument
+    
+    func makeNSView(context: NSViewRepresentableContext<PDFPreview>) -> PDFView {
+        let view = PDFView()
+        view.document = document
+        view.autoScales = true
+        return view
+    }
+    
+    func updateNSView(_ nsView: PDFView, context: NSViewRepresentableContext<PDFPreview>) {
+        nsView.document = document
+    }
+}
+
+// Helper view to simplify the event list item
+struct EventListItemView: View {
+    let event: CalendarEvent
+    let onTap: () -> Void
+    
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading) {
+                // Title
+                Text(event.title)
+                    .font(.headline)
+                
+                // Location
+                Text(event.location)
+                    .font(.subheadline)
+                
+                // Time range
+                HStack {
+                    Text(DateFormatter.localizedString(from: event.startDate, dateStyle: .none, timeStyle: .short))
+                    
+                    if let endDate = event.endDate {
+                        Text(" - \(DateFormatter.localizedString(from: endDate, dateStyle: .none, timeStyle: .short))")
+                    }
+                }
+                .font(.caption)
+                .foregroundColor(.secondary)
+                
+                // Icons for notes and PDF
+                if event.notes != nil || event.pdfReference != nil {
+                    HStack {
+                        if event.notes != nil {
+                            Image(systemName: "note.text")
+                        }
+                        
+                        if event.pdfReference != nil {
+                            Image(systemName: "doc.text")
+                        }
+                    }
+                    .font(.caption)
+                    .foregroundColor(.blue)
+                }
+            }
+            
+            Spacer()
+        }
+        .padding(.vertical, 5)
+        .padding(.horizontal)
+        .background(Color(NSColor.controlBackgroundColor))
+        .cornerRadius(8)
+        .padding(.horizontal, 5)
+        .padding(.bottom, 5)
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onTap)
+    }
+}
+
+struct CalendarView_Previews: PreviewProvider {
+    static var previews: some View {
+        CalendarView(isSpanish: .constant(false))
+    }
 }

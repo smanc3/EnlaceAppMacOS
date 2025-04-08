@@ -38,9 +38,7 @@ struct PopupView3: View {
                         Text(isSpanish ? "Nombre del Evento" : "Event Name")
                     }
                 //    .autocapitalization(.words)
-                    .padding()
                 }
-                .padding([.top, .leading, .trailing], 15.0)
 
                 // DatePicker
                 DatePicker(
@@ -49,27 +47,40 @@ struct PopupView3: View {
                 )
                 .padding(.bottom)
 
-                // Archive and Cancel Buttons
-                Button(action: {
-                    // Archive event logic
-                    showPopupArchive = false
-                }) {
-                    Text(isSpanish ? "Archivar Evento" : "Archive Event")
-                       // .foregroundColor(.blue)
-                      //  .padding()
-                }
-
-                Button(action: {
-                    showPopupArchive = false
-                }) {
-                    Text(isSpanish ? "Cancelar" : "Cancel")
+                // Archive and Cancel Buttons in an HStack
+                HStack {
+                    // Cancel Button
+                    Button(action: {
+                        showPopupArchive = false
+                    }) {
+                        Text(isSpanish ? "Cancelar" : "Cancel")
                        // .foregroundColor(.gray)
-                       // .padding()
+                    }
+                    .buttonStyle(.bordered)
+                    .keyboardShortcut(.escape, modifiers: [])
+                    
+                    Spacer()
+
+                    // Archive Button
+                    Button(action: {
+                        // Archive event logic
+                        showPopupArchive = false
+                    }) {
+                        Text(isSpanish ? "Archivar Evento" : "Archive Event")
+                       // .foregroundColor(.blue)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.blue) // Keep it blue for archive?
                 }
+                .padding(.top) // Add some space above buttons
             }
-            .frame(width: 450, height: 360)
-            .background()
-            .cornerRadius(15)
+            // Apply standard styling, remove fixed height
+            .padding() // Add padding
+            .frame(width: 500) // Keep width 500
+            // REMOVE fixed height: .frame(width: 500, height: 360)
+            .fixedSize(horizontal: false, vertical: true) // Allow vertical resizing
+            .background(Color(NSColor.windowBackgroundColor)) // Standard background
+            .cornerRadius(12) // Standard radius
             .shadow(radius: 10)
         }
     }
