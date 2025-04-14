@@ -22,65 +22,54 @@ struct PopupView2: View {
                     showPopupDelete = false
                 }
 
-            VStack {
+            VStack(spacing: 15) {
                 // Title
                 Text(isSpanish ? "Eliminar Evento" : "Delete Event")
-                    .font(.largeTitle)
-                    .padding(.bottom)
+                    .font(.title)
                     .fontWeight(.bold)
-
-                Form {
-                    // Event Name TextField
-                    TextField(
-                        text: $eventName,
-                        prompt: Text(isSpanish ? "Requerido" : "Required")
-                    ) {
-                        Text(isSpanish ? "Nombre del Evento" : "Event Name")
+                
+                ScrollView {
+                    VStack(spacing: 12) {
+                        // Event Name TextField
+                        TextField(
+                            isSpanish ? "Nombre del Evento" : "Event Name",
+                            text: $eventName
+                        )
+                        .textFieldStyle(.roundedBorder)
+                        .padding(.horizontal)
+                        
+                        // DatePicker
+                        DatePicker(
+                            isSpanish ? "Fecha y Hora" : "Date and Time",
+                            selection: .constant(Date())
+                        )
+                        .datePickerStyle(.compact)
+                        .padding(.horizontal)
                     }
-                    // Remove inner padding, let Form handle it
-                    // .padding()
                 }
-                // Remove outer padding for Form, rely on main VStack padding
-                // .padding([.top, .leading, .trailing], 15.0)
-
-                // DatePicker
-                DatePicker(
-                    isSpanish ? "Fecha y Hora" : "Date and Time",
-                    selection: .constant(Date())
-                )
-                // Keep some bottom padding to separate from buttons
-                .padding(.bottom)
-
-                // Delete and Cancel Buttons in an HStack
+                
+                // Delete and Cancel Buttons
                 HStack {
-                    // Cancel Button
-                    Button(action: {
+                    Button(isSpanish ? "Cancelar" : "Cancel") {
                         showPopupDelete = false
-                    }) {
-                        Text(isSpanish ? "Cancelar" : "Cancel")
-                           // .foregroundColor(.gray)
                     }
-                    .buttonStyle(.bordered) // Add border for visual separation
-                    .keyboardShortcut(.escape, modifiers: []) // Allow Esc to cancel
+                    .keyboardShortcut(.escape, modifiers: [])
+                    .buttonStyle(.bordered)
                     
                     Spacer()
                     
-                    // Delete Button
-                    Button(action: {
-                        // Logic for deleting event
+                    Button(isSpanish ? "Eliminar" : "Delete") {
+                        // Delete logic here
                         showPopupDelete = false
-                    }) {
-                        Text(isSpanish ? "Eliminar Evento" : "Delete Event")
-                            .foregroundColor(.white) // White text on red
                     }
-                    .buttonStyle(.borderedProminent) // Prominent style
-                    .tint(.red) // Red background
+                    .buttonStyle(.borderedProminent)
+                    .tint(.red)
+                    .disabled(eventName.isEmpty)
                 }
-                .padding(.top) // Add some space above buttons
+                .padding(.horizontal)
+                .padding(.top, 8)
             }
-            .padding()
-            .frame(width: 500)
-            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: 400, maxHeight: 500)
             .background(Color(NSColor.windowBackgroundColor))
             .cornerRadius(12)
             .shadow(radius: 10)

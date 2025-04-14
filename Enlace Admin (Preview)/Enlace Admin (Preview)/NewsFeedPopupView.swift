@@ -117,29 +117,20 @@ struct NewsFeedPopupView: View {
                     .buttonStyle(.plain)
                     .disabled(isUploading)
                 }
+                .padding(.horizontal)
                 
                 // Form content in a compact bordered container
-                VStack(alignment: .leading, spacing: 10) {
-                    // Title Field
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(isSpanish ? "Título:" : "Title:")
-                            .font(.headline)
-                            .foregroundColor(.primary)
-                        
+                ScrollView {
+                    VStack(spacing: 12) {
+                        // Title TextField
                         TextField(
-                            isSpanish ? "Título del documento (Requerido)" : "Document Title (Required)",
+                            isSpanish ? "Título del Documento" : "Document Title",
                             text: $documentTitle
                         )
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                    }
-                    .padding(.bottom, 2)
-                    
-                    // PDF File Selector & Thumbnail Preview
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(isSpanish ? "Archivo PDF:" : "PDF File:")
-                            .font(.headline)
-                            .foregroundColor(.primary)
+                        .textFieldStyle(.roundedBorder)
+                        .padding(.horizontal)
                         
+                        // PDF Selection Area
                         HStack {
                             VStack(alignment: .leading) {
                                 Text(selectedFileLabel.isEmpty ?
@@ -147,7 +138,7 @@ struct NewsFeedPopupView: View {
                                         selectedFileLabel)
                                 .padding(.vertical, 4)
                                 .padding(.horizontal, 8)
-                                .background(selectedPDFURL == nil ? Color(NSColor.controlBackgroundColor) : Color.clear) // Adjust background
+                                .background(selectedPDFURL == nil ? Color(NSColor.controlBackgroundColor) : Color.clear)
                                 .cornerRadius(6)
                                 .lineLimit(1)
                                 .truncationMode(.middle)
@@ -157,7 +148,7 @@ struct NewsFeedPopupView: View {
                                     Image(nsImage: thumbnail)
                                         .resizable()
                                         .aspectRatio(contentMode: .fit)
-                                        .frame(height: 100) // Adjust height
+                                        .frame(height: 100)
                                         .cornerRadius(4)
                                         .overlay(
                                             RoundedRectangle(cornerRadius: 4)
@@ -171,51 +162,42 @@ struct NewsFeedPopupView: View {
                             
                             // Show Remove button only if PDF is selected
                             if selectedPDFURL != nil {
-                                Button(action: resetPDFSelection) { // Use the reset helper
-                                    Image(systemName: "trash")
+                                Button(action: resetPDFSelection) {
+                                    Image(systemName: "xmark.circle.fill")
                                         .foregroundColor(.red)
                                 }
-                                .buttonStyle(.borderless)
-                                .padding(.leading, 5)
-                                .disabled(isUploading)
+                                .buttonStyle(.plain)
+                                .padding(.trailing)
                             }
-                            
-                            // Always show Browse button (unless uploading)
-                            Button(action: selectPDF) {
-                                Label(isSpanish ? "Explorar" : "Browse", systemImage: "folder")
+                        }
+                        .padding(.horizontal)
+                        
+                        // Select PDF Button
+                        Button(action: selectPDF) {
+                            Text(isSpanish ? "Seleccionar PDF" : "Select PDF")
+                                .padding(.vertical, 8)
+                                .padding(.horizontal, 12)
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(isUploading)
+                        .padding(.horizontal)
+                        
+                        // Validation Message
+                        if documentTitle.isEmpty || selectedPDFURL == nil {
+                            HStack {
+                                Image(systemName: "info.circle")
+                                    .foregroundColor(.orange)
+                                
+                                Text(isSpanish ? "Requiere título y archivo PDF" : "Title and PDF file required")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                
+                                Spacer()
                             }
-                            .buttonStyle(.bordered)
-                            .disabled(isUploading)
+                            .padding(.horizontal)
                         }
                     }
                 }
-                // Apply standard padding *inside* the form container
-                .padding()
-                .background(Color(NSColor.controlBackgroundColor))
-                .cornerRadius(10) // Keep inner radius slightly smaller? Or make 12?
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10)
-                        .stroke(Color.gray.opacity(0.2), lineWidth: 1)
-                )
-                .padding(.vertical, 2)
-                
-                // Status and validation messages
-                if documentTitle.isEmpty || selectedPDFURL == nil {
-                    HStack {
-                        Image(systemName: "info.circle")
-                            .foregroundColor(.orange)
-                        
-                        Text(isSpanish ? "Requiere título y archivo PDF" : "Title and PDF file required")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        
-                        Spacer()
-                    }
-                    .padding(.horizontal, 5)
-                    .padding(.vertical, 3)
-                }
-                
-                Spacer()
                 
                 // Upload Buttons
                 HStack {
@@ -242,12 +224,11 @@ struct NewsFeedPopupView: View {
                     .buttonStyle(.borderedProminent)
                     .disabled(documentTitle.isEmpty || selectedPDFURL == nil || isUploading)
                 }
+                .padding(.horizontal)
                 .padding(.top, 8)
             }
             // Apply standard padding, width, vertical sizing, background, radius, shadow to the main VStack
-            .padding()
-            .frame(width: 500)
-            .fixedSize(horizontal: false, vertical: true) // Allow vertical shrinking/growing
+            .frame(maxWidth: 400, maxHeight: 500)
             .background(Color(NSColor.windowBackgroundColor))
             .cornerRadius(12)
             .shadow(radius: 10)

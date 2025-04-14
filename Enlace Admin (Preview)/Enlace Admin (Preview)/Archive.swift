@@ -22,65 +22,55 @@ struct PopupView3: View {
                     showPopupArchive = false
                 }
 
-            VStack {
+            VStack(spacing: 15) {
                 // Title
                 Text(isSpanish ? "Archivar Evento" : "Archive Event")
-                    .font(.largeTitle)
-                    .padding(.bottom)
+                    .font(.title)
                     .fontWeight(.bold)
-
-                Form {
-                    // Event Name TextField
-                    TextField(
-                        text: $eventName,
-                        prompt: Text(isSpanish ? "Requerido" : "Required")
-                    ) {
-                        Text(isSpanish ? "Nombre del Evento" : "Event Name")
+                
+                ScrollView {
+                    VStack(spacing: 12) {
+                        // Event Name TextField
+                        TextField(
+                            isSpanish ? "Nombre del Evento" : "Event Name",
+                            text: $eventName
+                        )
+                        .textFieldStyle(.roundedBorder)
+                        .padding(.horizontal)
+                        
+                        // DatePicker
+                        DatePicker(
+                            isSpanish ? "Fecha y Hora" : "Date and Time",
+                            selection: .constant(Date())
+                        )
+                        .datePickerStyle(.compact)
+                        .padding(.horizontal)
                     }
-                //    .autocapitalization(.words)
                 }
-
-                // DatePicker
-                DatePicker(
-                    isSpanish ? "Fecha y Hora" : "Date and Time",
-                    selection: .constant(Date())
-                )
-                .padding(.bottom)
-
-                // Archive and Cancel Buttons in an HStack
+                
+                // Archive and Cancel Buttons
                 HStack {
-                    // Cancel Button
-                    Button(action: {
+                    Button(isSpanish ? "Cancelar" : "Cancel") {
                         showPopupArchive = false
-                    }) {
-                        Text(isSpanish ? "Cancelar" : "Cancel")
-                       // .foregroundColor(.gray)
                     }
-                    .buttonStyle(.bordered)
                     .keyboardShortcut(.escape, modifiers: [])
+                    .buttonStyle(.bordered)
                     
                     Spacer()
-
-                    // Archive Button
-                    Button(action: {
-                        // Archive event logic
+                    
+                    Button(isSpanish ? "Archivar" : "Archive") {
+                        // Archive logic here
                         showPopupArchive = false
-                    }) {
-                        Text(isSpanish ? "Archivar Evento" : "Archive Event")
-                       // .foregroundColor(.blue)
                     }
                     .buttonStyle(.borderedProminent)
-                    .tint(.blue) // Keep it blue for archive?
+                    .disabled(eventName.isEmpty)
                 }
-                .padding(.top) // Add some space above buttons
+                .padding(.horizontal)
+                .padding(.top, 8)
             }
-            // Apply standard styling, remove fixed height
-            .padding() // Add padding
-            .frame(width: 500) // Keep width 500
-            // REMOVE fixed height: .frame(width: 500, height: 360)
-            .fixedSize(horizontal: false, vertical: true) // Allow vertical resizing
-            .background(Color(NSColor.windowBackgroundColor)) // Standard background
-            .cornerRadius(12) // Standard radius
+            .frame(maxWidth: 400, maxHeight: 500)
+            .background(Color(NSColor.windowBackgroundColor))
+            .cornerRadius(12)
             .shadow(radius: 10)
         }
     }

@@ -48,7 +48,7 @@ struct PopupView: View {
             VStack {
                 // Title
                 Text(isSpanish ? "Crear Nuevo" : "Create New")
-                    .font(.largeTitle)
+                    .font(.title)
                     .padding(.bottom)
                     .fontWeight(.bold)
                 
@@ -58,142 +58,133 @@ struct PopupView: View {
                     Text(isSpanish ? "Evento de Calendario" : "Calendar Event").tag("CalendarEvent")
                 }
                 .pickerStyle(SegmentedPickerStyle())
-                .padding()
-
+                .padding(.horizontal)
+                
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 15) {
-                        // Title Field (Required)
-                        Text(isSpanish ? "Título:" : "Title:")
-                            .font(.headline)
-                        
+                    VStack(spacing: 12) {
+                        // Title Field
                         TextField(
-                            isSpanish ? "Título (Requerido)" : "Title (Required)",
+                            isSpanish ? "Título" : "Title",
                             text: $documentTitle
                         )
+                        .textFieldStyle(.roundedBorder)
+                        .padding(.horizontal)
                         
                         if recordType == "PDFDocumentItem" {
-                            // PDF File Selector
-                            Text(isSpanish ? "Archivo PDF:" : "PDF File:")
-                                .font(.headline)
-                            
+                            // PDF File Selection
                             HStack {
-                                Text(selectedFileLabel.isEmpty ? 
-                                    (isSpanish ? "Seleccionar PDF" : "Select PDF File") : 
-                                    selectedFileLabel)
-                                .padding(.vertical, 8)
-                                .padding(.horizontal, 12)
-                                .background(Color(NSColor.controlBackgroundColor))
-                                .cornerRadius(8)
+                                Text(selectedFileLabel.isEmpty ?
+                                     (isSpanish ? "Seleccionar PDF" : "Select PDF File") :
+                                        selectedFileLabel)
+                                .padding(.vertical, 4)
+                                .padding(.horizontal, 8)
+                                .background(selectedPDFURL == nil ? Color(NSColor.controlBackgroundColor) : Color.clear)
+                                .cornerRadius(6)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
                                 
                                 Spacer()
                                 
-                                Button(action: selectPDFFile) {
-                                    Text(isSpanish ? "Explorar..." : "Browse...")
+                                if selectedPDFURL != nil {
+                                    Button(action: { selectedPDFURL = nil; selectedFileLabel = "" }) {
+                                        Image(systemName: "xmark.circle.fill")
+                                            .foregroundColor(.red)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .padding(.trailing)
                                 }
-                                .buttonStyle(.bordered)
                             }
+                            .padding(.horizontal)
                             
-                            // Publication Date
-                            Text(isSpanish ? "Fecha de Publicación:" : "Publication Date:")
-                                .font(.headline)
-                            
-                            DatePicker("", selection: $startDate)
-                                .datePickerStyle(CompactDatePickerStyle())
-                                .labelsHidden()
+                            Button(action: selectPDFFile) {
+                                Text(isSpanish ? "Seleccionar PDF" : "Select PDF")
+                                    .padding(.vertical, 8)
+                                    .padding(.horizontal, 12)
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(isUploading)
+                            .padding(.horizontal)
                         }
                         
                         if recordType == "CalendarEvent" {
                             // Event Location
-                            Text(isSpanish ? "Ubicación:" : "Location:")
-                                .font(.headline)
-                            
                             TextField(
-                                isSpanish ? "Ubicación (Requerido)" : "Location (Required)", 
+                                isSpanish ? "Ubicación" : "Location",
                                 text: $location
                             )
+                            .textFieldStyle(.roundedBorder)
+                            .padding(.horizontal)
                             
                             // Start Date
-                            Text(isSpanish ? "Fecha y Hora de Inicio:" : "Start Date & Time:")
-                                .font(.headline)
-                            
-                            DatePicker("", selection: $startDate)
-                                .datePickerStyle(CompactDatePickerStyle())
-                                .labelsHidden()
+                            DatePicker(
+                                isSpanish ? "Fecha y Hora de Inicio" : "Start Date & Time",
+                                selection: $startDate
+                            )
+                            .datePickerStyle(.compact)
+                            .padding(.horizontal)
                             
                             // End Date
-                            Text(isSpanish ? "Fecha y Hora de Finalización:" : "End Date & Time:")
-                                .font(.headline)
-                            
-                            DatePicker("", selection: $endDate)
-                                .datePickerStyle(CompactDatePickerStyle())
-                                .labelsHidden()
+                            DatePicker(
+                                isSpanish ? "Fecha y Hora de Finalización" : "End Date & Time",
+                                selection: $endDate
+                            )
+                            .datePickerStyle(.compact)
+                            .padding(.horizontal)
                             
                             // Notes
-                            Text(isSpanish ? "Notas:" : "Notes:")
-                                .font(.headline)
+                            TextField(
+                                isSpanish ? "Notas" : "Notes",
+                                text: $notes
+                            )
+                            .textFieldStyle(.roundedBorder)
+                            .padding(.horizontal)
                             
-                            TextEditor(text: $notes)
-                                .frame(height: 100)
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .stroke(Color.gray.opacity(0.3), lineWidth: 1)
-                                )
-                            
-                            // Link to PDF Option
-                            Toggle(isSpanish ? "Adjuntar PDF existente" : "Link to existing PDF", isOn: $linkToPDF)
+                            // PDF Link Toggle
+                            Toggle(isSpanish ? "Vincular PDF" : "Link PDF", isOn: $linkToPDF)
+                                .padding(.horizontal)
                             
                             if linkToPDF {
-                                Button(action: {
-                                    loadAvailablePDFs()
-                                    isPDFPickerPresented = true
-                                }) {
-                                    Text(isSpanish ? "Seleccionar PDF" : "Select PDF")
+                                Picker(isSpanish ? "Seleccionar PDF" : "Select PDF", selection: $selectedPDFDocument) {
+                                    Text(isSpanish ? "Ninguno" : "None").tag(nil as CKRecord.ID?)
+                                    ForEach(availablePDFs, id: \.recordID) { pdf in
+                                        Text(pdf["title"] as? String ?? "Untitled").tag(pdf.recordID as CKRecord.ID?)
+                                    }
                                 }
-                                .buttonStyle(.bordered)
-                                .sheet(isPresented: $isPDFPickerPresented) {
-                                    PDFPickerView(
-                                        availablePDFs: availablePDFs,
-                                        selectedPDFID: $selectedPDFDocument,
-                                        isPresented: $isPDFPickerPresented,
-                                        isSpanish: isSpanish
-                                    )
-                                }
+                                .pickerStyle(.menu)
+                                .padding(.horizontal)
                             }
                         }
                     }
-                    .padding()
                 }
-                .frame(maxHeight: 400)
-
-                // Upload/Save Buttons
+                
+                // Action Buttons
                 HStack {
                     Button(isSpanish ? "Cancelar" : "Cancel") {
                         showPopupCreate = false
                     }
+                    .keyboardShortcut(.escape, modifiers: [])
                     .buttonStyle(.bordered)
-                    .foregroundColor(.red)
+                    .disabled(isUploading)
                     
                     Spacer()
-
-                    if isUploading {
-                        ProgressView()
-                    } else {
-                        Button(isSpanish ? "Crear" : "Create") {
-                            if validateFields() {
-                                saveRecord()
-                            } else {
-                                showAlert = true
-                            }
+                    
+                    Button(action: saveRecord) {
+                        if isUploading {
+                            ProgressView()
+                                .scaleEffect(0.7)
+                                .padding(.horizontal, 5)
+                        } else {
+                            Text(isSpanish ? "Guardar" : "Save")
+                                .fontWeight(.medium)
                         }
-                        .buttonStyle(.borderedProminent)
-                        .tint(.blue)
                     }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!validateFields() || isUploading)
                 }
-                .padding()
+                .padding(.horizontal)
+                .padding(.top, 8)
             }
-            .padding()
-            .frame(width: 500)
-            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: 400, maxHeight: 500)
             .background(Color(NSColor.windowBackgroundColor))
             .cornerRadius(12)
             .shadow(radius: 10)
