@@ -17,6 +17,7 @@ struct CalendarEvent: Identifiable {
     let location: String
     let notes: String?
     let pdfReference: CKRecord.Reference?
+    let recordNameMirror: String
     
     init(record: CKRecord) {
         self.id = record.recordID
@@ -26,11 +27,14 @@ struct CalendarEvent: Identifiable {
         self.location = record["location"] as? String ?? ""
         self.notes = record["notes"] as? String
         self.pdfReference = record["pdfReference"] as? CKRecord.Reference
+        self.recordNameMirror = record["recordNameMirror"] as? String ?? record.recordID.recordName
     }
 }
 
 struct CalendarView: View {
     @Binding var isSpanish: Bool  // Binding to control language selection
+    @Binding var refreshTrigger: Bool  // Binding to trigger refresh when new events are created
+    
     @State private var selectedDate = Date()
     @State private var currentMonthDate = Date()
     @State private var events: [CalendarEvent] = []
@@ -114,7 +118,7 @@ struct CalendarView: View {
                 Color.white
                     .cornerRadius(20)
                     .shadow(radius: 10)
-                    .frame(maxWidth: 500, maxHeight: 600)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 
                 VStack(spacing: 10) {
                     // Month Header Section
@@ -133,6 +137,14 @@ struct CalendarView: View {
                             .foregroundColor(.orange)
                         
                         Spacer()
+                        
+                        // Add refresh button
+                        Button(action: loadEvents) {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.title2)
+                                .foregroundColor(.orange)
+                        }
+                        .padding(.trailing, 5)
                         
                         Button(action: goToNextMonth) {
                             Image(systemName: "chevron.right")
@@ -184,6 +196,7 @@ struct CalendarView: View {
                             }
                         }
                     }
+                    .padding(.horizontal, 5)
                     
                     Divider()
                     
@@ -209,7 +222,7 @@ struct CalendarView: View {
                                     )
                                 }
                             }
-                            .frame(height: 150)
+                            .frame(minHeight: 150, maxHeight: .infinity)
                         }
                     }
                     .padding(.horizontal)
@@ -219,12 +232,19 @@ struct CalendarView: View {
                 }
                 .padding()
             }
-            .frame(maxWidth: 500, maxHeight: 600)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .padding()
         }
         .background(Color(.gray))
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
             loadEvents()
+        }
+        .onChange(of: refreshTrigger) { oldValue, newValue in
+            if newValue {
+                loadEvents()
+                refreshTrigger = false  // Reset the trigger after refreshing
+            }
         }
         .sheet(isPresented: $isEventDetailPresented) {
             if let event = selectedEvent {
@@ -247,14 +267,35 @@ struct CalendarView: View {
                 case .success(let matchResults):
                     let records = matchResults.matchResults.compactMap { (recordID, recordResult) -> CKRecord? in
                         if case .success(let record) = recordResult {
+                            // Ensure recordNameMirror is set
+                            if record["recordNameMirror"] == nil {
+                                record["recordNameMirror"] = record.recordID.recordName
+                                
+                                // Save the updated record with recordNameMirror in the background
+                                DispatchQueue.global(qos: .background).async {
+                                    self.database.save(record) { _, error in
+                                        if let error = error {
+                                            print("Error updating recordNameMirror: \(error.localizedDescription)")
+                                        }
+                                    }
+                                }
+                            }
                             return record
                         }
                         return nil
                     }
+                    
+                    // Debug info
+                    print("Calendar: Found \(records.count) records")
+                    for record in records {
+                        print("Calendar record: \(record.recordID.recordName), title: \(record["title"] ?? "No title")")
+                    }
+                    
                     self.events = records.map { CalendarEvent(record: $0) }
                     self.updateSelectedDateEvents()
                     
                 case .failure(let error):
+                    print("Calendar error: \(error.localizedDescription)")
                     self.errorMessage = error.localizedDescription
                 }
             }
@@ -268,7 +309,7 @@ struct EventDetailView: View {
     let isSpanish: Bool
     let container: CKContainer
     
-    @State private var linkedPDF: PDFDocument? = nil
+    @State private var linkedPDF: PDFKit.PDFDocument? = nil
     @State private var isLoadingPDF: Bool = false
     @State private var pdfError: String? = nil
     
@@ -374,7 +415,7 @@ struct EventDetailView: View {
                 } else if let record = record, 
                           let asset = record["pdfFile"] as? CKAsset,
                           let fileURL = asset.fileURL,
-                          let document = PDFDocument(url: fileURL) {
+                          let document = PDFKit.PDFDocument(url: fileURL) {
                     linkedPDF = document
                 } else {
                     pdfError = isSpanish ? 
@@ -388,7 +429,7 @@ struct EventDetailView: View {
 
 // PDF Preview
 struct PDFPreview: NSViewRepresentable {
-    let document: PDFDocument
+    let document: PDFKit.PDFDocument
     
     func makeNSView(context: NSViewRepresentableContext<PDFPreview>) -> PDFView {
         let view = PDFView()
@@ -460,6 +501,6 @@ struct EventListItemView: View {
 
 struct CalendarView_Previews: PreviewProvider {
     static var previews: some View {
-        CalendarView(isSpanish: .constant(false))
+        CalendarView(isSpanish: .constant(false), refreshTrigger: .constant(false))
     }
 }

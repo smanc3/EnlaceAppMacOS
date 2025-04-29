@@ -10,9 +10,22 @@
 		EB9D2C212D5460BF00CE2C31 /* Enlace Admin (Preview).app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Enlace Admin (Preview).app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		515A44152DB1D30700C886AB /* Exceptions for "Enlace Admin (Preview)" folder in "Enlace Admin (Preview)" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = EB9D2C202D5460BF00CE2C31 /* Enlace Admin (Preview) */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		EB9D2C232D5460BF00CE2C31 /* Enlace Admin (Preview) */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				515A44152DB1D30700C886AB /* Exceptions for "Enlace Admin (Preview)" folder in "Enlace Admin (Preview)" target */,
+			);
 			path = "Enlace Admin (Preview)";
 			sourceTree = "<group>";
 		};
@@ -258,8 +271,10 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_ASSET_PATHS = "\"Enlace Admin (Preview)/Preview Content\"";
+				DEVELOPMENT_TEAM = 3888A2A8ND;
 				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "Enlace Admin (Preview)/Info.plist";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -284,8 +299,10 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_ASSET_PATHS = "\"Enlace Admin (Preview)/Preview Content\"";
+				DEVELOPMENT_TEAM = 3888A2A8ND;
 				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "Enlace Admin (Preview)/Info.plist";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
