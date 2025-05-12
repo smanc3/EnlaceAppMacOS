@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXFileReference section */
+		5155D06D2DD287C500CDD373 /* Enlace Admin (Preview).xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = "Enlace Admin (Preview).xcodeproj"; sourceTree = "<group>"; };
 		EB9D2C212D5460BF00CE2C31 /* Enlace Admin (Preview).app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Enlace Admin (Preview).app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -15,7 +16,6 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
-				NEWS_FEED_DATE_FIX.md,
 			);
 			target = EB9D2C202D5460BF00CE2C31 /* Enlace Admin (Preview) */;
 		};
@@ -43,6 +43,13 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		5155D06E2DD287C500CDD373 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
 		EB9D2C182D5460BF00CE2C31 = {
 			isa = PBXGroup;
 			children = (
@@ -111,6 +118,12 @@
 			preferredProjectObjectVersion = 77;
 			productRefGroup = EB9D2C222D5460BF00CE2C31 /* Products */;
 			projectDirPath = "";
+			projectReferences = (
+				{
+					ProductGroup = 5155D06E2DD287C500CDD373 /* Products */;
+					ProjectRef = 5155D06D2DD287C500CDD373 /* Enlace Admin (Preview).xcodeproj */;
+				},
+			);
 			projectRoot = "";
 			targets = (
 				EB9D2C202D5460BF00CE2C31 /* Enlace Admin (Preview) */,
