@@ -1,0 +1,167 @@
+DEFINE SCHEMA
+
+RECORD TYPE ArchivedEvent (
+    "___createTime"  TIMESTAMP,
+    "___createdBy"   REFERENCE,
+    "___etag"        STRING,
+    "___modTime"     TIMESTAMP,
+    "___modifiedBy"  REFERENCE,
+    "___recordID"    REFERENCE,
+    archivedDate     TIMESTAMP QUERYABLE SORTABLE,
+    date             TIMESTAMP QUERYABLE SORTABLE,
+    endDate          TIMESTAMP QUERYABLE SORTABLE,
+    location         STRING,
+    notes            STRING,
+    pdfReference     REFERENCE,
+    recordNameMirror STRING QUERYABLE SEARCHABLE SORTABLE,
+    startDate        TIMESTAMP QUERYABLE SORTABLE,
+    title            STRING QUERYABLE SEARCHABLE,
+    GRANT WRITE TO "_creator",
+    GRANT CREATE TO "_icloud",
+    GRANT READ TO "_world"
+);
+
+RECORD TYPE ArchivedNewsPost (
+    "___createTime"  TIMESTAMP,
+    "___createdBy"   REFERENCE,
+    "___etag"        STRING,
+    "___modTime"     TIMESTAMP,
+    "___modifiedBy"  REFERENCE,
+    "___recordID"    REFERENCE,
+    archivedDate     TIMESTAMP QUERYABLE SORTABLE,
+    datePosted       TIMESTAMP QUERYABLE SORTABLE,
+    pdfReference     REFERENCE QUERYABLE,
+    recordNameMirror STRING QUERYABLE SEARCHABLE SORTABLE,
+    title            STRING QUERYABLE SEARCHABLE,
+    GRANT WRITE TO "_creator",
+    GRANT CREATE TO "_icloud",
+    GRANT READ TO "_world"
+);
+
+RECORD TYPE CalendarEvent (
+    "___createTime"    TIMESTAMP,
+    "___createdBy"     REFERENCE,
+    "___etag"          STRING,
+    "___modTime"       TIMESTAMP,
+    "___modifiedBy"    REFERENCE,
+    "___recordID"      REFERENCE,
+    archiveDate        TIMESTAMP QUERYABLE SORTABLE,
+    endDate            TIMESTAMP QUERYABLE SORTABLE,
+    isArchived         INT64 QUERYABLE SORTABLE,
+    isRecurrenceSeries INT64 QUERYABLE SORTABLE,
+    isRecurring        INT64 QUERYABLE SORTABLE,
+    location           STRING,
+    notes              STRING,
+    pdfReference       REFERENCE,
+    recordNameMirror   STRING QUERYABLE SEARCHABLE SORTABLE,
+    recurrenceCount    INT64 QUERYABLE SORTABLE,
+    recurrenceEndType  STRING QUERYABLE SEARCHABLE SORTABLE,
+    recurrenceParent   REFERENCE QUERYABLE,
+    recurrenceType     STRING QUERYABLE SEARCHABLE SORTABLE,
+    recurrenceWeekdays STRING QUERYABLE SEARCHABLE SORTABLE,
+    startDate          TIMESTAMP QUERYABLE SORTABLE,
+    title              STRING QUERYABLE SEARCHABLE,
+    GRANT WRITE TO "_creator",
+    GRANT CREATE TO "_icloud",
+    GRANT READ TO "_world"
+);
+
+RECORD TYPE NewsFeedItem (
+    "___createTime"  TIMESTAMP,
+    "___createdBy"   REFERENCE,
+    "___etag"        STRING,
+    "___modTime"     TIMESTAMP,
+    "___modifiedBy"  REFERENCE,
+    "___recordID"    REFERENCE,
+    content          STRING SEARCHABLE,
+    datePosted       TIMESTAMP QUERYABLE SORTABLE,
+    datePublished    TIMESTAMP QUERYABLE SORTABLE,
+    isArchived       INT64 QUERYABLE SORTABLE,
+    pdfReference     REFERENCE,
+    recordNameMirror STRING QUERYABLE SEARCHABLE SORTABLE,
+    scheduledDate    TIMESTAMP QUERYABLE SORTABLE,
+    title            STRING QUERYABLE SEARCHABLE,
+    GRANT WRITE TO "_creator",
+    GRANT CREATE TO "_icloud",
+    GRANT READ TO "_world"
+);
+
+RECORD TYPE NewsItem (
+    "___createTime" TIMESTAMP,
+    "___createdBy"  REFERENCE,
+    "___etag"       STRING,
+    "___modTime"    TIMESTAMP,
+    "___modifiedBy" REFERENCE,
+    "___recordID"   REFERENCE,
+    datePublished   TIMESTAMP QUERYABLE SORTABLE,
+    isSpanish       INT64 QUERYABLE SORTABLE,
+    linkURL         STRING QUERYABLE SEARCHABLE SORTABLE,
+    pdfReference    REFERENCE QUERYABLE,
+    publishedBy     REFERENCE QUERYABLE,
+    title           STRING QUERYABLE SEARCHABLE SORTABLE,
+    GRANT WRITE TO "_creator",
+    GRANT CREATE TO "_icloud",
+    GRANT READ TO "_world"
+);
+
+RECORD TYPE PDFCategory (
+    "___createTime" TIMESTAMP,
+    "___createdBy"  REFERENCE,
+    "___etag"       STRING,
+    "___modTime"    TIMESTAMP,
+    "___modifiedBy" REFERENCE,
+    "___recordID"   REFERENCE,
+    createdDate     TIMESTAMP QUERYABLE SORTABLE,
+    name            STRING QUERYABLE SEARCHABLE SORTABLE,
+    GRANT WRITE TO "_creator",
+    GRANT CREATE TO "_icloud",
+    GRANT READ TO "_world"
+);
+
+RECORD TYPE PDFDocumentItem (
+    "___createTime"  TIMESTAMP,
+    "___createdBy"   REFERENCE,
+    "___etag"        STRING,
+    "___modTime"     TIMESTAMP,
+    "___modifiedBy"  REFERENCE,
+    "___recordID"    REFERENCE QUERYABLE,
+    categoryID       REFERENCE QUERYABLE,
+    dateUploaded     TIMESTAMP QUERYABLE SORTABLE,
+    isArchived       INT64 QUERYABLE SORTABLE,
+    isSpanish        INT64 QUERYABLE SORTABLE,
+    pdfFile          ASSET,
+    recordNameMirror STRING QUERYABLE SEARCHABLE SORTABLE,
+    test             STRING QUERYABLE SEARCHABLE SORTABLE,
+    title            STRING QUERYABLE SEARCHABLE,
+    GRANT WRITE TO "_creator",
+    GRANT CREATE TO "_icloud",
+    GRANT READ TO "_world"
+);
+
+RECORD TYPE Users (
+    "___createTime" TIMESTAMP,
+    "___createdBy"  REFERENCE,
+    "___etag"       STRING,
+    "___modTime"    TIMESTAMP,
+    "___modifiedBy" REFERENCE,
+    "___recordID"   REFERENCE,
+    roles           LIST<INT64>,
+    GRANT WRITE TO "_creator",
+    GRANT READ TO "_world"
+);
+
+RECORD TYPE NotificationItem (
+    "___createTime"  TIMESTAMP,
+    "___createdBy"   REFERENCE,
+    "___etag"        STRING,
+    "___modTime"     TIMESTAMP,
+    "___modifiedBy"  REFERENCE,
+    "___recordID"    REFERENCE,
+    content          STRING SEARCHABLE,
+    timestamp        TIMESTAMP QUERYABLE SORTABLE,
+    readStatus       INT64 QUERYABLE SORTABLE,
+    relatedNews      REFERENCE QUERYABLE,
+    relatedEvent     REFERENCE QUERYABLE,
+    GRANT CREATE TO "_icloud",
+    GRANT READ TO "_world"
+); 

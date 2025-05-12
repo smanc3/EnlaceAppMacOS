@@ -1,0 +1,2139 @@
+//
+//  EventManagementView.swift
+//  Enlace Admin (Preview)
+//
+//  Created on 4/20/25.
+//
+
+import SwiftUI
+import CloudKit
+import PDFKit
+import AppKit
+import Darwin // For mach memory APIs
+import Foundation
+
+// Import the custom FreezeDetection system
+// This should be a relative import since it's in the same module
+// If it's not recognized, we need to ensure it's included in the build
+
+struct EventManagementView: View {
+    @Binding var isSpanish: Bool
+    @Binding var refreshTrigger: Bool
+    @StateObject private var languageManager = LanguageManager()
+    
+    // State variables
+    @State private var events: [CalendarEvent] = []
+    @State private var archivedEvents: [CalendarEvent] = []
+    @State private var isLoading: Bool = true
+    @State private var errorMessage: String? = nil
+    @State private var selectedEvent: CalendarEvent? = nil
+    @State private var searchText: String = ""
+    @State private var sortOrder: SortOrder = .newestFirst
+    @State private var showFullPDFView: Bool = false
+    @State private var currentPDFDocument: PDFKit.PDFDocument? = nil
+    
+    // CRITICAL: New approach to bypass event selection
+    @State private var selectedEventId: String? = nil
+    @State private var selectedEventTitle: String? = nil
+    
+    // Freeze detection properties
+    @State private var activeDetectionArea: FreezeDetection.Area? = nil
+    @State private var activeDetectionContext: [String: Any]? = nil
+    @State private var freezeDetectionTimer: Timer? = nil
+    @State private var freezeDetectionStartTime: Date? = nil
+    @State private var pdfError: Error? = nil
+
+    // Event action tracking enum
+    enum EventAction {
+        case select, deselect, load, cloudKitFetch, viewPDF, pdfLoad
+        case memoryCheck, memoryPressure, debugInfo, warning, critical, freeze
+    }
+    
+    // Define FreezeDetection for monitoring long operations
+    enum FreezeDetection {
+        enum Area {
+            case pdfLoad, dataProcessing, cloudKitFetch, uiUpdate
+        }
+        
+        static func startDetection(area: Area, timeoutSeconds: TimeInterval, context: [String: Any]) {
+            print("🔍 FREEZE DETECTION: Starting monitoring of \(area) with \(timeoutSeconds)s timeout")
+            // This is a stub - the actual implementation is in the viewPDF methods
+        }
+        
+        static func stopDetection(additionalContext: [String: Any]? = nil) {
+            print("🔍 FREEZE DETECTION: Stopping monitoring")
+            // This is a stub - the actual implementation is in the viewPDF methods
+        }
+    }
+    
+    // Alert system
+    enum AlertType: Identifiable {
+        case deleteConfirmation
+        case archiveConfirmation
+        case unarchiveConfirmation
+        case createSuccess(title: String)
+        case updateSuccess(title: String)
+        case archiveSuccess(title: String)
+        case unarchiveSuccess(title: String)
+        case error(message: String)
+        
+        var id: Int {
+            switch self {
+            case .deleteConfirmation: return 0
+            case .archiveConfirmation: return 1
+            case .unarchiveConfirmation: return 2
+            case .createSuccess: return 3
+            case .updateSuccess: return 4
+            case .error: return 5
+            case .archiveSuccess: return 6
+            case .unarchiveSuccess: return 7
+            }
+        }
+    }
+    
+    @State private var activeAlert: AlertType? = nil
+    
+    // Editing state
+    @State private var isEditing: Bool = false
+    @State private var editTitle: String = ""
+    @State private var editLocation: String = ""
+    @State private var editStartDate: Date = Date()
+    @State private var editEndDate: Date = Date().addingTimeInterval(3600)
+    @State private var editNotes: String = ""
+    @State private var editLinkURL: String = ""
+    @State private var selectedPDFRecord: CKRecord?
+    @State private var selectedPDFURL: URL?
+    @State private var selectedFileLabel: String = ""
+    @State private var showPDFPicker: Bool = false
+    
+    // State for PDF management
+    @State private var pdfThumbnailCache: [String: NSImage] = [:] // Cache for PDF thumbnails
+    
+    // CloudKit
+    private let container = CKContainer(identifier: "iCloud.PearInc.EICT-iOS-16")
+    private var database: CKDatabase {
+        return container.publicCloudDatabase
+    }
+    
+    enum SortOrder: String, CaseIterable, Identifiable {
+        case newestFirst, oldestFirst, titleAZ, titleZA
+        
+        var id: String { self.rawValue }
+        
+        var displayName: String {
+            switch self {
+            case .newestFirst: return "Latest Events First"
+            case .oldestFirst: return "Earliest Events First"
+            case .titleAZ: return "Title A-Z"
+            case .titleZA: return "Title Z-A"
+            }
+        }
+        
+        var spanishDisplayName: String {
+            switch self {
+            case .newestFirst: return "Eventos Próximos Primero"
+            case .oldestFirst: return "Eventos Antiguos Primero"
+            case .titleAZ: return "Título A-Z"
+            case .titleZA: return "Título Z-A"
+            }
+        }
+    }
+    
+    // Filtered events based on search and filter settings
+    private var filteredEvents: [CalendarEvent] {
+        guard !searchText.isEmpty else { return events }
+        return events.filter { 
+            $0.title.localizedCaseInsensitiveContains(searchText) ||
+            ($0.location ?? "").localizedCaseInsensitiveContains(searchText) ||
+            ($0.notes ?? "").localizedCaseInsensitiveContains(searchText)
+        }
+    }
+    
+    // Add a static property to store the timer
+    private static var memoryMonitorTimer: Timer?
+    
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header
+            headerView
+            
+            // Search and filters section
+            searchAndFilterView
+            
+            // Main content area - delegate to helper properties
+            contentView
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onAppear {
+            loadEvents()
+            loadArchivedEvents()
+            // Replace setupFreezeDetection with initialization of freeze detection
+            print("🔍 FREEZE DETECTION: Initializing detection system")
+            freezeDetectionStartTime = nil
+            freezeDetectionTimer?.invalidate()
+            freezeDetectionTimer = nil
+            activeDetectionArea = nil
+            activeDetectionContext = nil
+            
+            // Add observer for PDF view requests from EventRowActions
+            NotificationCenter.default.addObserver(
+                forName: NSNotification.Name("ViewPDFRequested"),
+                object: nil,
+                queue: .main
+            ) { notification in
+                if let userInfo = notification.userInfo,
+                   let reference = userInfo["reference"] as? CKRecord.Reference,
+                   let eventId = userInfo["eventId"] as? String {
+                    viewPDF(for: reference, eventId: eventId)
+                }
+            }
+        }
+        .onDisappear {
+            // Cleanup observers to prevent memory leaks
+            NotificationCenter.default.removeObserver(self)
+            
+            // Important: Invalidate the timer to prevent memory leaks
+            // And prevent background processing
+            Self.memoryMonitorTimer?.invalidate()
+            Self.memoryMonitorTimer = nil
+            print("📊 CLEANUP: Memory monitor timer invalidated and nullified")
+            
+            // Clear any references
+            selectedEvent = nil
+            selectedEventId = nil
+            selectedEventTitle = nil
+            currentPDFDocument = nil
+            
+            // Clear caches on disappear
+            pdfThumbnailCache.removeAll()
+            
+            // Force a cleanup cycle
+            autoreleasepool {
+                // Additional cleanup in autorelease pool
+                if #available(macOS 13.0, *) {
+                    URLCache.shared.removeAllCachedResponses()
+                }
+                
+                // Force immediate memory release on macOS
+                // Use simpler approach that doesn't require unsafe pointers
+                #if os(macOS)
+                // Request memory warning
+                let sharedApplication = NSApplication.shared
+                NotificationCenter.default.post(name: NSApplication.didResignActiveNotification, object: sharedApplication)
+                NotificationCenter.default.post(name: NSApplication.willBecomeActiveNotification, object: sharedApplication)
+                #endif
+            }
+            
+            print("ℹ️ [EventManagementView.swift:\(#line)] body - EventManagementView disappeared - cleaned up observers")
+        }
+        .alert(item: $activeAlert) { alertType in
+            createAlertView(for: alertType)
+        }
+        .sheet(isPresented: $showPDFPicker) {
+            PDFSelectorView(
+                selectedPDFRecord: $selectedPDFRecord,
+                selectedPDFURL: $selectedPDFURL,
+                selectedFileLabel: $selectedFileLabel,
+                isSpanish: $isSpanish
+            )
+            .frame(width: 600, height: 500)
+            .onChange(of: selectedPDFRecord) { newValue in
+                if newValue != nil {
+                    // Auto-dismiss when a PDF is selected
+                    showPDFPicker = false
+                }
+            }
+            .onChange(of: selectedPDFURL) { newValue in
+                if newValue != nil {
+                    // Auto-dismiss when a PDF is imported
+                    showPDFPicker = false
+                }
+            }
+        }
+        .sheet(isPresented: $showFullPDFView) {
+            pdfViewSheet
+        }
+    }
+    
+    // Header view extracted
+    private var headerView: some View {
+        HStack {
+            Text(isSpanish ? "Administrar Eventos" : "Manage Events")
+                .font(.title)
+                .fontWeight(.bold)
+            
+            Spacer()
+            
+            // Refresh button
+            Button(action: {
+                loadEvents()
+                loadArchivedEvents()
+            }) {
+                Label(isSpanish ? "Actualizar" : "Refresh", systemImage: "arrow.clockwise")
+            }
+            .buttonStyle(.bordered)
+            .disabled(isLoading)
+        }
+        .padding()
+        .background(Color(NSColor.controlBackgroundColor))
+    }
+    
+    // Extract some of the body content into separate methods to reduce complexity
+    private var contentView: some View {
+        if isLoading {
+            return AnyView(loadingView(message: isSpanish ? "Cargando eventos..." : "Loading events..."))
+        } else if errorMessage != nil {
+            return AnyView(errorView(error: errorMessage!, retryAction: loadEvents))
+        } else if events.isEmpty {
+            return AnyView(emptyStateView(
+                icon: "calendar", 
+                message: isSpanish ? "No hay eventos para mostrar" : "No events to display"
+            ))
+        } else {
+            return AnyView(eventsContentView)
+        }
+    }
+    
+    private var eventsContentView: some View {
+        // SIMPLIFIED APPROACH - only use selectedEventId/Title, not selectedEvent
+        HStack(spacing: 0) {
+            // Left panel: list of events - SIMPLIFIED
+            VStack {
+                List {
+                    ForEach(filteredEvents, id: \.id) { event in
+                        EventRow(event: event, isSpanish: isSpanish, editEvent: editEvent, archiveEvent: archiveEvent, deleteEvent: deleteEvent, isSelected: selectedEvent?.id == event.id, selectEvent: handleEventSelection)
+                    }
+                }
+                .listStyle(.inset)
+                .background(Color.white)
+                // Removed Create New Event button
+            }
+            .frame(minWidth: 300)
+            .background(Color.white)
+            
+            Divider()
+            
+            // Right panel
+            rightPanelView
+        }
+    }
+    
+    func editEvent(_ event: CalendarEvent) {
+        print("📝 DEBUG: Starting editEvent for event ID: \(event.id)")
+        selectedEvent = event
+        editTitle = event.title
+        editLocation = event.location ?? ""
+        editStartDate = event.startDate
+        editEndDate = event.endDate
+        editNotes = event.notes ?? ""
+        editLinkURL = event.linkURL ?? ""
+        isEditing = true
+    }
+    
+    func createNewEvent() {
+        print("📝 DEBUG: Starting createNewEvent")
+        clearEditState()
+        isEditing = true
+    }
+    
+    func clearEditState() {
+        print("🧹 DEBUG: Clearing edit state")
+        selectedEvent = nil
+        editTitle = ""
+        editLocation = ""
+        editStartDate = Date()
+        editEndDate = Date().addingTimeInterval(3600)
+        editNotes = ""
+        editLinkURL = ""
+        selectedPDFRecord = nil
+        selectedPDFURL = nil
+        selectedFileLabel = ""
+        isEditing = false
+    }
+    
+    // Consolidated asynchronous PDF loading
+    func loadPDFRecordAsync(_ reference: CKRecord.Reference) async {
+        print("📄 DEBUG: Starting async PDF loading for reference ID: \(reference.recordID.recordName)")
+        logEventAction(
+            action: .pdfLoad, 
+            details: [
+                "state": "started",
+                "referenceID": reference.recordID.recordName
+            ]
+        )
+        
+        // Set default state immediately to prevent UI freeze
+        await MainActor.run {
+            selectedPDFRecord = nil
+            selectedFileLabel = isSpanish ? "Cargando PDF..." : "Loading PDF..."
+        }
+        
+        do {
+            // Fetch the record asynchronously
+            let startTime = Date()
+            let record = try await database.record(for: reference.recordID)
+            let loadTime = Date().timeIntervalSince(startTime)
+            
+            // Log detailed performance information
+            logEventAction(
+                action: .pdfLoad,
+                details: [
+                    "state": "completed",
+                    "referenceID": reference.recordID.recordName,
+                    "loadTime": loadTime,
+                    "recordSize": record.description.count
+                ],
+                executionTime: loadTime
+            )
+            
+            // Update UI on main thread
+            await MainActor.run {
+                print("📄 DEBUG: Successfully loaded PDF record")
+                self.selectedPDFRecord = record
+                self.selectedFileLabel = record["title"] as? String ?? "Selected PDF"
+            }
+        } catch {
+            print("📄 DEBUG: Error fetching PDF record: \(error.localizedDescription)")
+            logEventAction(
+                action: .pdfLoad,
+                details: [
+                    "state": "error",
+                    "referenceID": reference.recordID.recordName,
+                    "error": error.localizedDescription
+                ]
+            )
+            
+            await MainActor.run {
+                self.selectedFileLabel = self.isSpanish ? "Error: \(error.localizedDescription)" : "Error: \(error.localizedDescription)"
+            }
+        }
+    }
+    
+    func saveChanges() {
+        if let event = selectedEvent {
+            // Update existing event
+            updateEvent(event)
+        } else {
+            // Create new event
+            createEvent()
+        }
+        
+        // Reset edit mode
+        isEditing = false
+    }
+    
+    func updateEvent() {
+        guard let event = selectedEvent else {
+            print("⚠️ ERROR: No event selected for update")
+            return
+        }
+        
+        print("🔄 DEBUG: Starting update for event ID: \(event.id), Title: \(editTitle)")
+        
+        // Update record in CloudKit
+        let recordID = event.recordID
+        
+        // Reference to indicate a database operation is in progress
+        // Remove unused variable declaration
+        
+        // Perform database fetch first to get the full record to modify
+        DispatchQueue.global(qos: .userInitiated).async { [self] in
+            
+            let fetchRecordsOperation = CKFetchRecordsOperation(recordIDs: [recordID])
+            fetchRecordsOperation.qualityOfService = .userInitiated
+            
+            // Update to use the non-deprecated API
+            fetchRecordsOperation.fetchRecordsResultBlock = { result in
+                switch result {
+                case .success(let recordsDict):
+                    guard let record = recordsDict[recordID] else {
+                        print("⚠️ Record not found for update")
+                        DispatchQueue.main.async {
+                            self.activeAlert = .error(message: "Record not found for update")
+                        }
+                        return
+                    }
+                    
+                    // Update the record with new data
+                    record["title"] = self.editTitle
+                    record["startDate"] = self.editStartDate
+                    record["endDate"] = self.editEndDate
+                    
+                    if !self.editLocation.isEmpty {
+                        record["location"] = self.editLocation
+                    } else {
+                        record.setValue(nil, forKey: "location")
+                    }
+                    
+                    if !self.editNotes.isEmpty {
+                        record["notes"] = self.editNotes
+                    } else {
+                        record.setValue(nil, forKey: "notes")
+                    }
+                    
+                    // Update link URL if provided
+                    if !self.editLinkURL.isEmpty {
+                        if let url = URL(string: self.editLinkURL) {
+                            record["linkURL"] = self.editLinkURL
+                            logLinkSaved(url: url.absoluteString, modelType: "CalendarEvent", modelId: record.recordID.recordName, file: #file, function: #function, line: #line)
+                        } else {
+                            logWarning("Invalid URL format, linkURL not set: \(self.editLinkURL)", file: #file, function: #function, line: #line)
+                        }
+                    } else {
+                        record.setValue(nil, forKey: "linkURL")
+                    }
+                    
+                    // PDF attachment handling
+                    if let pdfRecord = self.selectedPDFRecord {
+                        print("📄 DEBUG: Updating event with PDF reference: \(pdfRecord.recordID.recordName)")
+                        record["pdfReference"] = CKRecord.Reference(record: pdfRecord, action: .deleteSelf)
+                    } else if self.selectedPDFURL != nil {
+                        // This case is handled after the PDF is uploaded below
+                        print("📄 DEBUG: Will upload new PDF for event")
+                    } else if self.selectedFileLabel.isEmpty {
+                        // Clear any existing PDF reference
+                        print("📄 DEBUG: Removing PDF reference from event")
+                        record.setValue(nil, forKey: "pdfReference")
+                    } else {
+                        // Keep existing PDF reference
+                    }
+                
+                // Handle the case where a new PDF needs to be uploaded
+                if let pdfURL = self.selectedPDFURL {
+                    print("📄 DEBUG: Creating new PDF record for file: \(pdfURL.lastPathComponent)")
+                    // Create a new PDF record
+                    let pdfRecord = CKRecord(recordType: "PDFDocument")
+                    
+                    // Create a file wrapper for the PDF
+                    let asset = CKAsset(fileURL: pdfURL)
+                    pdfRecord["pdfFile"] = asset
+                    pdfRecord["title"] = pdfURL.lastPathComponent
+                    pdfRecord["dateUploaded"] = Date()
+                    
+                    // Save the PDF record and then update the event record with a reference
+                    let uploadOperation = CKModifyRecordsOperation(recordsToSave: [pdfRecord], recordIDsToDelete: nil)
+                    uploadOperation.qualityOfService = .userInitiated
+                    
+                    // Update to use the non-deprecated API
+                    uploadOperation.modifyRecordsResultBlock = { result in
+                        switch result {
+                        case .success(let records):
+                            guard let savedPDFRecord = records.first else {
+                                print("⚠️ PDF record not saved")
+                                DispatchQueue.main.async {
+                                    self.activeAlert = .error(message: "PDF record not saved")
+                                }
+                                return
+                            }
+                            
+                            print("✅ DEBUG: PDF uploaded successfully with ID: \(savedPDFRecord.recordID.recordName)")
+                            
+                            // Add reference to the newly uploaded PDF
+                            record["pdfReference"] = CKRecord.Reference(record: savedPDFRecord, action: .deleteSelf)
+                            
+                            // Now save the updated event record
+                            let updateOperation = CKModifyRecordsOperation(recordsToSave: [record], recordIDsToDelete: nil)
+                            updateOperation.qualityOfService = .userInitiated
+                            
+                            // Update to use the non-deprecated API
+                            updateOperation.modifyRecordsResultBlock = { result in
+                                switch result {
+                                case .success(let records):
+                                    self.handleRecordUpdateCompletion(records, nil)
+                                case .failure(let error):
+                                    self.handleRecordUpdateCompletion(nil, error)
+                                }
+                            }
+                            
+                            self.database.add(updateOperation)
+                        
+                        case .failure(let error):
+                            print("⚠️ Error uploading PDF: \(error.localizedDescription)")
+                            DispatchQueue.main.async {
+                                self.activeAlert = .error(message: "Error uploading PDF: \(error.localizedDescription)")
+                            }
+                        }
+                    }
+                    
+                    self.database.add(uploadOperation)
+                } else {
+                    // No new PDF to upload, just update the event record
+                    let updateOperation = CKModifyRecordsOperation(recordsToSave: [record], recordIDsToDelete: nil)
+                    updateOperation.qualityOfService = .userInitiated
+                    
+                    // Update to use the non-deprecated API
+                    updateOperation.modifyRecordsResultBlock = { result in
+                        switch result {
+                        case .success(let records):
+                            self.handleRecordUpdateCompletion(records, nil)
+                        case .failure(let error):
+                            self.handleRecordUpdateCompletion(nil, error)
+                        }
+                    }
+                    
+                    self.database.add(updateOperation)
+                }
+            }
+            
+            self.database.add(fetchRecordsOperation)
+        }
+    }
+
+    func createEvent() {
+        let newRecord = CKRecord(recordType: "CalendarEvent")
+        
+        // Set fields
+        newRecord["title"] = editTitle
+        newRecord["startDate"] = editStartDate
+        newRecord["endDate"] = editEndDate
+        
+        if !editLocation.isEmpty {
+            newRecord["location"] = editLocation
+        }
+        
+        if !editNotes.isEmpty {
+            newRecord["notes"] = editNotes
+        }
+        
+        // Set recordNameMirror for queryability
+        newRecord["recordNameMirror"] = newRecord.recordID.recordName
+        
+        // Set isArchived field to 0 (not archived) for new events
+        newRecord["isArchived"] = 0
+        
+        // Set recurrence fields with default values
+        newRecord["isRecurrenceSeries"] = 0
+        newRecord["isRecurring"] = 0
+        newRecord["recurrenceCount"] = 0
+        newRecord["recurrenceEndType"] = nil
+        newRecord["recurrenceParent"] = nil
+        newRecord["recurrenceType"] = nil
+        newRecord["recurrenceWeekdays"] = nil
+        
+        // Add link URL if provided
+        if !editLinkURL.isEmpty {
+            if let url = URL(string: editLinkURL) {
+                newRecord["linkURL"] = editLinkURL
+                logLinkSaved(url: url.absoluteString, modelType: "CalendarEvent", modelId: newRecord.recordID.recordName, file: #file, function: #function, line: #line)
+            } else {
+                logWarning("Invalid URL format, linkURL not set: \(editLinkURL)", file: #file, function: #function, line: #line)
+            }
+        }
+        
+        // Add PDF reference if available
+        if let pdfRecord = selectedPDFRecord {
+            print("📄 DEBUG: Creating event with existing PDF reference: \(pdfRecord.recordID.recordName)")
+            newRecord["pdfReference"] = CKRecord.Reference(record: pdfRecord, action: .deleteSelf)
+        }
+        
+        // Log for debugging
+        print("📝 Creating event with title: \(editTitle), ID: \(newRecord.recordID.recordName)")
+        
+        // If we need to upload a new PDF first
+        if let pdfURL = selectedPDFURL {
+            print("📄 DEBUG: Uploading new PDF for event: \(pdfURL.lastPathComponent)")
+            
+            // Create a new PDF record
+            let pdfRecord = CKRecord(recordType: "PDFDocument")
+            
+            // Create a file wrapper for the PDF
+            let asset = CKAsset(fileURL: pdfURL)
+            pdfRecord["pdfFile"] = asset
+            pdfRecord["title"] = pdfURL.lastPathComponent
+            pdfRecord["dateUploaded"] = Date()
+            
+            // Save the PDF record and then the event record
+            let uploadOperation = CKModifyRecordsOperation(recordsToSave: [pdfRecord], recordIDsToDelete: nil)
+            uploadOperation.qualityOfService = .userInitiated
+            
+            // Update to use the non-deprecated API
+            uploadOperation.modifyRecordsResultBlock = { result in
+                switch result {
+                case .success(let records):
+                    guard let savedPDFRecord = records.first else {
+                        print("⚠️ PDF record not saved")
+                        DispatchQueue.main.async {
+                            self.activeAlert = .error(message: "PDF record not saved")
+                        }
+                        return
+                    }
+                    
+                    print("✅ DEBUG: New PDF uploaded with ID: \(savedPDFRecord.recordID.recordName)")
+                    
+                    // Add reference to the newly uploaded PDF
+                    newRecord["pdfReference"] = CKRecord.Reference(record: savedPDFRecord, action: .deleteSelf)
+                    
+                    // Now save the event record with the PDF reference
+                    let saveOperation = CKModifyRecordsOperation(recordsToSave: [newRecord], recordIDsToDelete: nil)
+                    saveOperation.qualityOfService = .userInitiated
+                    
+                    // Update to use the non-deprecated API
+                    saveOperation.modifyRecordsResultBlock = { result in
+                        switch result {
+                        case .success(let records):
+                            self.handleRecordCreateCompletion(records, nil)
+                        case .failure(let error):
+                            self.handleRecordCreateCompletion(nil, error)
+                        }
+                    }
+                    
+                    self.database.add(saveOperation)
+                    
+                case .failure(let error):
+                    print("⚠️ Error uploading PDF: \(error.localizedDescription)")
+                    DispatchQueue.main.async {
+                        self.activeAlert = .error(message: "Error uploading PDF: \(error.localizedDescription)")
+                    }
+                }
+            }
+            
+            database.add(uploadOperation)
+        } else {
+            // No PDF to upload, just save the event
+            let saveOperation = CKModifyRecordsOperation(recordsToSave: [newRecord], recordIDsToDelete: nil)
+            saveOperation.qualityOfService = .userInitiated
+            
+            // Update to use the non-deprecated API
+            saveOperation.modifyRecordsResultBlock = { result in
+                switch result {
+                case .success(let records):
+                    self.handleRecordCreateCompletion(records, nil)
+                case .failure(let error):
+                    self.handleRecordCreateCompletion(nil, error)
+                }
+            }
+            
+            database.add(saveOperation)
+        }
+    }
+    
+    func deleteEvent(_ event: CalendarEvent) {
+        print("🗑️ DEBUG: Starting deleteEvent for event ID: \(event.id)")
+        
+        // First remove from local array
+        if let index = events.firstIndex(where: { $0.id == event.id }) {
+            events.remove(at: index)
+        }
+        
+        // Clear all selection state
+        selectedEvent = nil
+        selectedEventId = nil
+        selectedEventTitle = nil
+        isEditing = false
+        
+        // Delete from CloudKit
+        DispatchQueue.global(qos: .userInitiated).async {
+            let recordID = event.recordID
+            let deleteOperation = CKModifyRecordsOperation(recordsToSave: nil, recordIDsToDelete: [recordID])
+            deleteOperation.qualityOfService = .userInitiated
+            
+            deleteOperation.modifyRecordsResultBlock = { result in
+                switch result {
+                case .success(_):
+                    DispatchQueue.main.async {
+                        print("✅ Successfully deleted event: \(event.id)")
+                    }
+                case .failure(let error):
+                    print("⚠️ Error deleting event: \(error.localizedDescription)")
+                    
+                    DispatchQueue.main.async {
+                        self.activeAlert = .error(message: "Error deleting event: \(error.localizedDescription)")
+                        
+                        // Refresh the events list to ensure consistency
+                        self.loadEvents()
+                    }
+                }
+            }
+            
+            self.database.add(deleteOperation)
+        }
+    }
+    
+    func unarchiveEvent(_ event: CalendarEvent) {
+        print("📂 DEBUG: Starting unarchiveEvent for event ID: \(event.id)")
+        
+        // First, add to active events array for display
+        events.append(event)
+        
+        // Then remove from archived events
+        if let index = archivedEvents.firstIndex(where: { $0.id == event.id }) {
+            archivedEvents.remove(at: index)
+        }
+        
+        // Clear all selection state
+        selectedEvent = nil
+        selectedEventId = nil
+        selectedEventTitle = nil
+        isEditing = false
+        
+        // Update in CloudKit
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                // Fetch the record
+                let record = try self.database.record(for: event.recordID)
+                
+                // Mark as unarchived
+                record["isArchived"] = 0
+                record["archiveDate"] = nil
+                
+                // Save the record
+                try self.database.save(record)
+                DebugLogger.log("Successfully unarchived event in CloudKit: \(event.title)", category: .cloudKit, level: .info)
+                
+                // Show success alert
+                await MainActor.run {
+                    self.activeAlert = .unarchiveSuccess(title: event.title)
+                }
+            } catch {
+                print("⚠️ Error unarchiving event: \(error.localizedDescription)")
+                
+                DispatchQueue.main.async {
+                    self.activeAlert = .error(message: "Error unarchiving event: \(error.localizedDescription)")
+                    
+                    // Refresh both event lists to ensure consistency
+                    self.loadEvents()
+                    self.loadArchivedEvents()
+                }
+            }
+        }
+    }
+    
+    // Add the resetEditFields method
+    private func resetEditFields() {
+        if let event = selectedEvent {
+            // If an event is selected, populate fields with its values
+            editTitle = event.title
+            editLocation = event.location ?? ""
+            editStartDate = event.startDate
+            editEndDate = event.endDate
+            editNotes = event.notes ?? ""
+            editLinkURL = event.linkURL?.absoluteString ?? ""
+            
+            // Handle PDF reference
+            if event.pdfReference != nil {
+                selectedPDFRecord = nil
+                selectedFileLabel = isSpanish ? "PDF Disponible" : "PDF Available"
+                
+                // Don't actually load the PDF yet to avoid performance issues
+                print("🔄 PDF: Reference exists but not loading yet")
+            } else {
+                selectedPDFRecord = nil
+                selectedPDFURL = nil
+                selectedFileLabel = ""
+            }
+        } else {
+            // If no event is selected, reset to defaults
+            clearEditState()
+        }
+        
+        print("🔄 DEBUG: Reset edit fields completed")
+    }
+    
+    // MARK: - Logging and Performance Tracking
+
+    // Track event operations with context
+    private func trackEventOperation<T>(
+        operation: String,
+        eventId: String,
+        details: [String: Any] = [:],
+        executionTime: TimeInterval? = nil,
+        result: Result<T, Error>? = nil
+    ) {
+        var operationDetails = details
+        operationDetails["eventId"] = eventId
+        operationDetails["operation"] = operation
+        
+        if let executionTime = executionTime {
+            operationDetails["executionTime"] = executionTime
+        }
+        
+        if let result = result {
+            switch result {
+            case .success:
+                operationDetails["result"] = "success"
+            case .failure(let error):
+                operationDetails["result"] = "failure"
+                operationDetails["error"] = error.localizedDescription
+            }
+        }
+        
+        logEventAction(
+            action: .cloudKitFetch,
+            details: operationDetails,
+            executionTime: executionTime
+        )
+    }
+    
+    // Log event actions to the console with detailed info
+    private func logEventAction(
+        action: EventAction,
+        details: [String: Any] = [:],
+        executionTime: TimeInterval? = nil
+    ) {
+        var logDetails = details
+        logDetails["action"] = action
+        
+        if let executionTime = executionTime {
+            logDetails["executionTime"] = executionTime
+        }
+        
+        // Add memory usage information
+        var info = mach_task_basic_info()
+        var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size)/4
+        
+        let kerr: kern_return_t = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: 1) {
+                task_info(mach_task_self_,
+                         task_flavor_t(MACH_TASK_BASIC_INFO),
+                         $0,
+                         &count)
+            }
+        }
+        
+        if kerr == KERN_SUCCESS {
+            let usedMB = Double(info.resident_size) / 1024.0 / 1024.0
+            logDetails["memoryUsageMB"] = usedMB
+        }
+        
+        // Add network quality information
+        logDetails["networkQuality"] = detectNetworkQuality()
+        
+        // Log the event
+        print("📊 EVENT ACTION: \(action) - \(logDetails)")
+    }
+    
+    // Log info messages
+    func logInfo(_ message: String, file: String = #file, function: String = #function, line: Int = #line) {
+        print("ℹ️ INFO: \(message) [\(URL(fileURLWithPath: file).lastPathComponent):\(line)]")
+    }
+    
+    // Log warning messages
+    func logWarning(_ message: String, file: String = #file, function: String = #function, line: Int = #line) {
+        print("⚠️ WARNING: \(message) [\(URL(fileURLWithPath: file).lastPathComponent):\(line)]")
+    }
+    
+    // Log link saved - helps track link-related actions for debugging
+    func logLinkSaved(url: String, modelType: String, modelId: String, file: String = #file, function: String = #function, line: Int = #line) {
+        print("🔗 LINK SAVED: \(url) for \(modelType) \(modelId) [\(URL(fileURLWithPath: file).lastPathComponent):\(line)]")
+    }
+    
+    // Event load tracking
+    func beginEventLoad() {
+        print("📚 EVENT LOAD: Starting event loading process")
+        logInfo("Beginning event load", file: #file, function: #function, line: #line)
+    }
+    
+    func endEventLoad(count: Int, success: Bool, error: Error? = nil) {
+        if success {
+            print("📚 EVENT LOAD: Successfully loaded \(count) events")
+        } else if let error = error {
+            print("📚 EVENT LOAD: Failed to load events - \(error.localizedDescription)")
+        }
+        
+        logInfo("Event load completed: count=\(count), success=\(success)", file: #file, function: #function, line: #line)
+    }
+    
+    // MARK: - Helper Methods for Network and Diagnostics
+    
+    // Helper to get file size in bytes
+    func getFileSize(_ url: URL) -> Int64 {
+        do {
+            let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+            if let size = attributes[.size] as? Int64 {
+                return size
+            }
+        } catch {
+            print("Error getting file size: \(error.localizedDescription)")
+        }
+        return 0
+    }
+    
+    // Helper method to get formatted file size string
+    func getFileSizeString(_ url: URL) -> String {
+        let bytes = getFileSize(url)
+        
+        if bytes < 1024 {
+            return "\(bytes) bytes"
+        } else if bytes < 1024 * 1024 {
+            let kb = Double(bytes) / 1024.0
+            return "\(String(format: "%.2f", kb)) KB"
+        } else {
+            let mb = Double(bytes) / (1024.0 * 1024.0)
+            return "\(String(format: "%.2f", mb)) MB"
+        }
+    }
+    
+    // Helper to classify CloudKit errors for better diagnostics
+    func classifyCloudKitError(_ error: Error) -> String {
+        let nsError = error as NSError
+        
+        if nsError.domain == CKErrorDomain {
+            let ckError = CKError(_nsError: nsError)
+            
+            switch ckError.code {
+            case .networkFailure, .networkUnavailable, .serviceUnavailable:
+                return "NetworkIssue"
+            case .notAuthenticated, .permissionFailure:
+                return "AuthenticationIssue"
+            case .limitExceeded, .requestRateLimited:
+                return "RateLimitIssue"
+            case .assetFileNotFound, .incompatibleVersion, .badContainer, .invalidArguments:
+                return "DataIssue"
+            case .serverResponseLost, .serverRejectedRequest, .internalError:
+                return "ServerIssue"
+            default:
+                return "OtherCloudKitIssue"
+            }
+        } else if nsError.domain == NSURLErrorDomain {
+            return "NetworkConnectivityIssue"
+        }
+        
+        return "UnknownIssue"
+    }
+    
+    // Helper to detect network quality
+    func detectNetworkQuality() -> String {
+        // This is a simplified version - in a real app, you'd use NWPathMonitor
+        // or other network diagnosis tools to get actual network quality
+        
+        // For demo purposes, we're returning a fixed value to avoid network requests
+        return "Unknown (Not measured)"
+    }
+    
+    // MARK: - Optimized Data Processing Methods
+    
+    // New optimized method to map records to events in chunks
+    func mapRecordsToEventsOptimized(_ records: [CKRecord]) {
+        // Start a new freeze detection for the mapping operation - shorter timeout
+        FreezeDetection.startDetection(
+            area: .dataProcessing,
+            timeoutSeconds: 2.0,
+            context: [
+                "operation": "mapRecordsToEvents",
+                "recordCount": records.count,
+                "optimizedMapping": true
+            ]
+        )
+        
+        // Use Task to move the heavy processing to a background thread
+        Task {
+            // Define chunk size - smaller chunks process faster
+            let chunkSize = max(1, min(5, records.count))
+            print("📊 OPTIMIZED MAPPING: Processing \(records.count) records in chunks of \(chunkSize)")
+            
+            // Process records in chunks to avoid UI blocking
+            var mappedEvents: [CalendarEvent] = []
+            
+            // Create chunks of records
+            let chunks = stride(from: 0, to: records.count, by: chunkSize).map {
+                Array(records[$0..<min($0 + chunkSize, records.count)])
+            }
+            
+            // Process each chunk with a slight delay to allow UI updates
+            for (index, chunk) in chunks.enumerated() {
+                // Map the chunk of records to events
+                let chunkStart = Date()
+                let chunkEvents = chunk.map { CalendarEvent(record: $0) }
+                mappedEvents.append(contentsOf: chunkEvents)
+                
+                print("📊 MAPPING CHUNK: Processed chunk \(index+1)/\(chunks.count) with \(chunk.count) records in \(Date().timeIntervalSince(chunkStart) * 1000)ms")
+                
+                // If more chunks remain, add a tiny delay to allow UI to remain responsive
+                if index < chunks.count - 1 {
+                    try? await Task.sleep(nanoseconds: 1_000_000) // 1ms delay
+                }
+            }
+            
+            // Update UI on main thread
+            await MainActor.run {
+                // Set events and finish loading
+                self.events = mappedEvents
+                self.sortEvents()
+                
+                // End loading state
+                self.isLoading = false
+                
+                logEventAction(
+                    action: .load,
+                    details: [
+                        "operation": "mapping_optimized_complete",
+                        "count": mappedEvents.count,
+                        "chunkedProcessing": true,
+                        "chunkSize": chunkSize,
+                        "chunks": chunks.count
+                    ]
+                )
+                
+                print("📚 EVENT LOAD: Successfully loaded \(mappedEvents.count) events")
+                endEventLoad(count: self.events.count, success: true)
+                
+                // Stop the freeze detection
+                FreezeDetection.stopDetection(additionalContext: [
+                    "eventCount": self.events.count,
+                    "success": true,
+                    "optimizedComplete": true
+                ])
+            }
+        }
+    }
+
+    // MARK: - MISSING VIEWS AND FUNCTIONS RESTORED
+    
+    // Search and filter view
+    var searchAndFilterView: some View {
+        HStack {
+            Image(systemName: "magnifyingglass")
+                .foregroundColor(.secondary)
+            TextField(isSpanish ? "Buscar eventos..." : "Search events...", text: $searchText)
+                .textFieldStyle(.roundedBorder)
+                .frame(maxWidth: .infinity)
+                .onChange(of: searchText) { newValue in
+                    print("🔍 DEBUG: Search text changed to: \(newValue)")
+                }
+            Spacer(minLength: 12)
+            Picker(isSpanish ? "Ordenar por" : "Sort by", selection: $sortOrder) {
+                ForEach(SortOrder.allCases) { order in
+                    Text(isSpanish ? order.spanishDisplayName : order.displayName).tag(order)
+                }
+            }
+            .pickerStyle(MenuPickerStyle())
+            .frame(width: 150)
+            .onChange(of: sortOrder) { newValue in
+                print("🔃 DEBUG: Sort order changed to: \(newValue)"); sortEvents()
+            }
+        }
+        .padding(.horizontal)
+        .padding(.bottom, 8)
+        .background(Color(NSColor.textBackgroundColor))
+    }
+
+    // Load events from CloudKit
+    func loadEvents() {
+        beginEventLoad()
+        isLoading = true
+        errorMessage = nil
+        print("📥 DEBUG: Loading events from CloudKit...")
+
+        let predicate = NSPredicate(format: "isArchived != 1")
+        let query = CKQuery(recordType: "CalendarEvent", predicate: predicate)
+        let sort = NSSortDescriptor(key: "startDate", ascending: true)
+        query.sortDescriptors = [sort]
+
+        database.fetch(withQuery: query, inZoneWith: nil, desiredKeys: nil, resultsLimit: CKQueryOperation.maximumResults) { (result: Result<(matchResults: [(CKRecord.ID, Result<CKRecord, Error>)], queryCursor: CKQueryOperation.Cursor?), Error>) in
+            DispatchQueue.main.async {
+                switch result {
+                case .success(let (matchResults, _)):
+                    let records = matchResults.compactMap { try? $0.1.get() }
+                    print("✅ CloudKit loaded \(records.count) events")
+                    for record in records {
+                        let title = record["title"] as? String ?? "(No Title)"
+                        let id = record.recordID.recordName
+                        print("  - Event: \(id), title: \(title)")
+                    }
+                    self.events = records.map { CalendarEvent(record: $0) }
+                    self.sortEvents()
+                    self.isLoading = false
+                    self.endEventLoad(count: self.events.count, success: true)
+                case .failure(let error):
+                    // Don't create sample events on error - just show the error
+                    self.errorMessage = error.localizedDescription
+                    self.isLoading = false
+                    self.events = [] // Ensure there are no events
+                    print("❌ CloudKit error loading events: \(error.localizedDescription)")
+                    self.endEventLoad(count: 0, success: false, error: error)
+                }
+            }
+        }
+    }
+
+    // Load archived events from CloudKit
+    func loadArchivedEvents() {
+        print("📦 DEBUG: Loading archived events from CloudKit...")
+        let predicate = NSPredicate(format: "isArchived == 1")
+        let query = CKQuery(recordType: "CalendarEvent", predicate: predicate)
+        let sort = NSSortDescriptor(key: "startDate", ascending: true)
+        query.sortDescriptors = [sort]
+
+        database.fetch(withQuery: query, inZoneWith: nil, desiredKeys: nil, resultsLimit: CKQueryOperation.maximumResults) { (result: Result<(matchResults: [(CKRecord.ID, Result<CKRecord, Error>)], queryCursor: CKQueryOperation.Cursor?), Error>) in
+            DispatchQueue.main.async {
+                switch result {
+                case .success(let (matchResults, _)):
+                    let records = matchResults.compactMap { try? $0.1.get() }
+                    print("✅ CloudKit loaded \(records.count) archived events")
+                    for record in records {
+                        let title = record["title"] as? String ?? "(No Title)"
+                        let id = record.recordID.recordName
+                        print("  - Archived Event: \(id), title: \(title)")
+                    }
+                    self.archivedEvents = records.map { CalendarEvent(record: $0) }
+                case .failure(let error):
+                    print("❌ CloudKit error loading archived events: \(error.localizedDescription)")
+                    self.archivedEvents = []
+                }
+            }
+        }
+    }
+
+    // Create alert view for .alert modifier
+    func createAlertView(for alertType: AlertType) -> Alert {
+        print("⚠️ DEBUG: Creating alert for type: \(alertType)")
+        switch alertType {
+        case .deleteConfirmation:
+            return Alert(title: Text(isSpanish ? "¿Eliminar evento?" : "Delete Event?"),
+                         message: Text(isSpanish ? "Esta acción no se puede deshacer." : "This action cannot be undone."),
+                         primaryButton: .destructive(Text(isSpanish ? "Eliminar" : "Delete")) {
+                            if let event = selectedEvent { deleteEvent(event) }
+                         },
+                         secondaryButton: .cancel())
+        case .archiveConfirmation:
+            return Alert(title: Text(isSpanish ? "¿Archivar evento?" : "Archive Event?"),
+                         message: Text(isSpanish ? "Puedes restaurarlo más tarde." : "You can restore it later."),
+                         primaryButton: .default(Text(isSpanish ? "Archivar" : "Archive")) {
+                            if let event = selectedEvent { archiveEvent(event) }
+                         },
+                         secondaryButton: .cancel())
+        case .unarchiveConfirmation:
+            return Alert(title: Text(isSpanish ? "¿Restaurar evento?" : "Unarchive Event?"),
+                         message: Text(isSpanish ? "El evento volverá a la lista principal." : "The event will return to the main list."),
+                         primaryButton: .default(Text(isSpanish ? "Restaurar" : "Unarchive")) {
+                            if let event = selectedEvent { unarchiveEvent(event) }
+                         },
+                         secondaryButton: .cancel())
+        case .createSuccess(let title):
+            return Alert(title: Text(isSpanish ? "Evento creado" : "Event Created"),
+                         message: Text(title),
+                         dismissButton: .default(Text("OK")))
+        case .updateSuccess(let title):
+            return Alert(title: Text(isSpanish ? "Evento actualizado" : "Event Updated"),
+                         message: Text(title),
+                         dismissButton: .default(Text("OK")))
+        case .archiveSuccess(let title):
+            return Alert(title: Text(isSpanish ? "Evento archivado" : "Event Archived"),
+                         message: Text(title),
+                         dismissButton: .default(Text("OK")))
+        case .unarchiveSuccess(let title):
+            return Alert(title: Text(isSpanish ? "Evento restaurado" : "Event Unarchived"),
+                         message: Text(title),
+                         dismissButton: .default(Text("OK")))
+        case .error(let message):
+            return Alert(title: Text(isSpanish ? "Error" : "Error"),
+                         message: Text(message),
+                         dismissButton: .default(Text("OK")))
+        }
+    }
+
+    // PDF view sheet
+    var pdfViewSheet: some View {
+        VStack {
+            if let pdf = currentPDFDocument {
+                PDFKitView(showing: pdf)
+            } else if let error = pdfError {
+                Text(isSpanish ? "Error al cargar PDF: " : "Error loading PDF: ") + Text(error.localizedDescription)
+            } else {
+                ProgressView(isSpanish ? "Cargando PDF..." : "Loading PDF...")
+            }
+        }
+        .frame(width: 900, height: 1200)
+        .onAppear { print("📄 DEBUG: PDF sheet appeared") }
+    }
+
+    // Loading view
+    func loadingView(message: String) -> some View {
+        // Return a view with the divider present
+        HStack(spacing: 0) {
+            // Loading panel with white background
+            VStack {
+                Spacer()
+            ProgressView()
+                    .progressViewStyle(CircularProgressViewStyle())
+                    .scaleEffect(1.5)
+                    .padding()
+            Text(message)
+                    .font(.headline)
+                    .foregroundColor(.secondary)
+                Spacer()
+            }
+            .frame(minWidth: 300, maxWidth: .infinity)
+            .background(Color.white)
+            
+            // Keep divider visible
+            Divider()
+            
+            // Empty detail panel
+            VStack {
+                Spacer()
+                Image(systemName: "arrow.left.circle")
+                    .font(.system(size: 48))
+                    .foregroundColor(.gray)
+                Text(isSpanish ? "Selecciona un evento para ver detalles" : "Select an event to view details")
+                    .font(.headline)
+                    .foregroundColor(.secondary)
+                    .padding()
+                Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color(NSColor.textBackgroundColor))
+        }
+        .onAppear { print("⏳ DEBUG: Loading view shown: \(message)") }
+    }
+
+    // Error view
+    func errorView(error: String, retryAction: @escaping () -> Void) -> some View {
+        // Return a view with the divider present
+        HStack(spacing: 0) {
+            // Error panel with white background
+            VStack {
+                Spacer()
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 40))
+                .foregroundColor(.orange)
+                    .padding()
+            Text(error)
+                    .font(.headline)
+                .multilineTextAlignment(.center)
+                    .padding()
+            Button(action: retryAction) {
+                Text(isSpanish ? "Reintentar" : "Retry")
+            }
+                .buttonStyle(.bordered)
+                .padding()
+                Spacer()
+            }
+            .frame(minWidth: 300, maxWidth: .infinity)
+            .background(Color.white)
+            
+            // Keep divider visible
+            Divider()
+            
+            // Empty detail panel
+            VStack {
+                Spacer()
+                Image(systemName: "arrow.left.circle")
+                    .font(.system(size: 48))
+                    .foregroundColor(.gray)
+                Text(isSpanish ? "Selecciona un evento para ver detalles" : "Select an event to view details")
+                    .font(.headline)
+                    .foregroundColor(.secondary)
+                    .padding()
+                Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color(NSColor.textBackgroundColor))
+        }
+        .onAppear { print("❌ DEBUG: Error view shown: \(error)") }
+    }
+
+    // Empty state view
+    func emptyStateView(icon: String, message: String) -> some View {
+        // Return a view with the divider present
+        HStack(spacing: 0) {
+            // Empty list panel
+            VStack {
+                Spacer(minLength: 80) // Adjusted spacing for consistency
+                HStack {
+                    Spacer()
+                    VStack(spacing: 12) {
+            Image(systemName: icon)
+                            .font(.system(size: 60))
+                .foregroundColor(.gray)
+            Text(message)
+                            .font(.title2)
+                            .foregroundColor(.gray)
+                    }
+                    Spacer()
+                }
+                Spacer(minLength: 80) // Adjusted spacing for consistency
+            }
+            .frame(minWidth: 300, maxWidth: .infinity)
+            .background(Color.white)
+            
+            // Keep divider visible
+            Divider()
+            
+            // Empty detail panel
+            VStack {
+                Spacer()
+                Image(systemName: "arrow.left.circle")
+                    .font(.system(size: 48))
+                    .foregroundColor(.gray)
+                Text(isSpanish ? "Selecciona un evento para ver detalles" : "Select an event to view details")
+                    .font(.headline)
+                    .foregroundColor(.secondary)
+                    .padding()
+                Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color(NSColor.textBackgroundColor))
+        }
+        .onAppear { print("🈳 DEBUG: Empty state view shown: \(message)") }
+    }
+
+    // Right panel view (event detail or edit panel)
+    private var rightPanelView: some View {
+        VStack {
+            if isEditing {
+                Text(isSpanish ? "Editar Evento" : "Edit Event")
+                    .font(.headline)
+                // ... (edit form fields go here)
+                // For brevity, not repeating the full edit form
+                // PDF Attachment Section (styled like News Feed)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(isSpanish ? "Documento PDF" : "PDF Document")
+                        .font(.headline)
+                        .fontWeight(.bold)
+                        .padding(.top, 12)
+                    HStack(spacing: 10) {
+                        Button(action: {
+                            print("🛠️ [DEBUG] Upload PDF button tapped in EventManagementView")
+                            print("🛠️ [DEBUG] Current edit state - Event ID: \(selectedEventId ?? "new"), Title: \(editTitle)")
+                            
+                            logPDFOperation(operation: "Upload PDF button tapped", details: [
+                                "eventId": selectedEventId ?? "new", 
+                                "title": editTitle,
+                                "mode": isEditing ? "edit" : "create"
+                            ])
+                            
+                            // Present file picker for PDF upload
+                            selectedPDFURL = nil
+                            showPDFPicker = true
+                        }) {
+                            HStack {
+                                Image(systemName: "square.and.arrow.up")
+                                Text(isSpanish ? "Subir PDF" : "Upload PDF")
+                            }
+                            .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.large)
+                    }
+                    HStack {
+                        Rectangle()
+                            .frame(height: 1)
+                            .foregroundColor(Color.secondary.opacity(0.2))
+                        Text(isSpanish ? "o" : "or")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Rectangle()
+                            .frame(height: 1)
+                            .foregroundColor(Color.secondary.opacity(0.2))
+                    }
+                    HStack(spacing: 10) {
+                        Button(action: {
+                            print("🛠️ [DEBUG] Select Existing PDF tapped")
+                            print("🛠️ [DEBUG] Current edit state - Event ID: \(selectedEventId ?? "new"), Title: \(editTitle)")
+                            
+                            logPDFOperation(operation: "Select Existing PDF button tapped", details: [
+                                "eventId": selectedEventId ?? "new", 
+                                "title": editTitle,
+                                "mode": isEditing ? "edit" : "create"
+                            ])
+                            
+                            selectedPDFURL = nil
+                            showPDFPicker = true
+                        }) {
+                            HStack {
+                                Image(systemName: "doc.text.magnifyingglass")
+                                Text(isSpanish ? "Seleccionar PDF Existente" : "Select Existing PDF")
+                            }
+                            .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.large)
+                    }
+                    if selectedPDFURL != nil || selectedPDFRecord != nil {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(selectedFileLabel)
+                                .font(.headline)
+                                .lineLimit(1)
+                            HStack(spacing: 8) {
+                                Button(action: {
+                                    print("🛠️ [DEBUG] Remove PDF selection")
+                                    selectedPDFURL = nil
+                                    selectedPDFRecord = nil
+                                    selectedFileLabel = ""
+                                }) {
+                                    Text(isSpanish ? "Quitar" : "Remove")
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                                Button(action: {
+                                    print("🛠️ [DEBUG] Change PDF selection")
+                                    showPDFPicker = true
+                                }) {
+                                    Text(isSpanish ? "Cambiar" : "Change")
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                            }
+                        }
+                    }
+                }
+                .padding(.vertical, 8)
+            } else if let event = selectedEvent {
+                Text(event.title)
+                    .font(.title2)
+                    .fontWeight(.bold)
+                Text(DateFormatter.localizedString(from: event.startDate, dateStyle: .short, timeStyle: .short))
+                    .font(.caption)
+                    .foregroundColor(.green)
+                if let location = event.location, !location.isEmpty {
+                    Text(location)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                Text("\(formatEventDateTime(event.startDate)) - \(formatEventDateTime(event.endDate))")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                if let notes = event.notes, !notes.isEmpty {
+                    Text(notes)
+                        .padding(.top, 8)
+                }
+                if let pdfRef = event.pdfReference {
+                    Button(action: { viewPDF(for: pdfRef, eventId: event.id) }) {
+                        Label(isSpanish ? "Ver PDF" : "View PDF", systemImage: "doc.richtext")
+                    }
+                    .padding(.top, 8)
+                }
+            } else {
+                Spacer()
+                Image(systemName: "arrow.left.circle")
+                    .font(.system(size: 48))
+                    .foregroundColor(.gray)
+                Text(isSpanish ? "Selecciona un evento para ver detalles" : "Select an event to view details")
+                    .font(.headline)
+                    .foregroundColor(.secondary)
+                    .padding()
+            Spacer()
+            }
+        }
+        .padding()
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(NSColor.textBackgroundColor))
+        .onAppear { print("➡️ DEBUG: Right panel view appeared") }
+    }
+
+    // Sort events based on sortOrder
+    func sortEvents() {
+        print("🔃 DEBUG: Sorting events by order: \(sortOrder)")
+        switch sortOrder {
+        case .newestFirst:
+            events.sort { $0.startDate > $1.startDate }
+        case .oldestFirst:
+            events.sort { $0.startDate < $1.startDate }
+        case .titleAZ:
+            events.sort { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+        case .titleZA:
+            events.sort { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedDescending }
+        }
+    }
+
+    func handleEventSelection(_ event: CalendarEvent) {
+        print("👉 DEBUG: Handling event selection for event ID: \(event.id), Title: \(event.title)")
+        selectedEvent = event
+        selectedEventId = event.id
+        selectedEventTitle = event.title
+        isEditing = false // Ensure we are in detail view mode, not edit mode
+        
+        // If there's a PDF, start loading its details but not the full PDF yet
+        if let pdfRef = event.pdfReference {
+            Task {
+                await loadPDFRecordAsync(pdfRef)
+            }
+        } else {
+            // Clear any previous PDF details if this event has no PDF
+            selectedPDFRecord = nil
+            selectedPDFURL = nil
+            selectedFileLabel = ""
+        }
+    }
+
+    // Helper function to log CloudKit errors consistently
+    func logCloudKitError(_ error: CKError, operation: String, resourceId: String) {
+        let errorCode = error.code
+        DebugLogger.log("CloudKit error in \(operation): \(errorCode.rawValue) - \(errorCode)", category: .cloudKit, level: .error)
+        
+        // Log underlying error if available
+        if let underlyingError = error.userInfo[NSUnderlyingErrorKey] as? Error {
+            DebugLogger.log("Underlying error: \(underlyingError.localizedDescription)", category: .cloudKit, level: .error)
+        }
+        
+        var errorDetails = "Unknown error"
+        switch errorCode {
+        case .serverRecordChanged:
+            errorDetails = "Server record changed - The record was modified by another process"
+        case .networkFailure, .networkUnavailable:
+            errorDetails = "Network connectivity issue - Check internet connection"
+        case .serviceUnavailable:
+            errorDetails = "CloudKit service unavailable - Servers may be down"
+        case .notAuthenticated:
+            errorDetails = "Not authenticated - Check iCloud sign in"
+        case .permissionFailure:
+            errorDetails = "Permission failure - Check app entitlements"
+        case .unknownItem:
+            errorDetails = "Unknown item - The record or zone does not exist"
+        case .invalidArguments:
+            errorDetails = "Invalid arguments in request"
+        case .constraintViolation:
+            errorDetails = "Constraint violation - Schema validation failed"
+        case .operationCancelled:
+            errorDetails = "Operation cancelled"
+        case .changeTokenExpired:
+            errorDetails = "Change token expired - Fetch new token"
+        case .batchRequestFailed:
+            errorDetails = "Batch request failed"
+        case .zoneBusy:
+            errorDetails = "Zone busy - Try again later"
+        default:
+            errorDetails = "Other CloudKit error: \(errorCode.rawValue)"
+        }
+        
+        DebugLogger.log("\(operation) failed for resource \(resourceId): \(errorDetails)", category: .cloudKit, level: .error)
+    }
+
+    func archiveEvent(_ event: CalendarEvent) {
+        DebugLogger.log("Starting archiveEvent for event ID: \(event.id)", category: .cloudKit, level: .info)
+        
+        // First, add to archived events array for display
+        archivedEvents.append(event)
+        
+        // Then remove from active events
+        if let index = events.firstIndex(where: { $0.id == event.id }) {
+            events.remove(at: index)
+        }
+        
+        // Clear all selection state for consistency
+        selectedEvent = nil
+        selectedEventId = nil
+        selectedEventTitle = nil
+        isEditing = false
+        
+        // Try to update in CloudKit if it's not a sample event
+        if !event.title.contains("(Sample)") {
+            Task {
+                do {
+                    // Fetch the record
+                    let record = try await database.record(for: event.recordID)
+                    
+                    // Mark as archived using isArchived field
+                    record["isArchived"] = 1
+                    record["archiveDate"] = Date()
+                    
+                    // Save the record
+                    try await database.save(record)
+                    DebugLogger.log("Successfully archived event in CloudKit: \(event.title)", category: .cloudKit, level: .info)
+                    
+                    // Show success alert
+                    await MainActor.run {
+                        self.activeAlert = .archiveSuccess(title: event.title)
+                    }
+                } catch {
+                    DebugLogger.log("Failed to archive event in CloudKit: \(error.localizedDescription)", category: .cloudKit, level: .error)
+                    
+                    // Enhanced error logging
+                    if let ckError = error as? CKError {
+                        logCloudKitError(ckError, operation: "archiveEvent", resourceId: event.id)
+                    }
+                    
+                    // The event is still archived locally, so no need to take action
+                }
+            }
+        } else {
+            DebugLogger.log("Archived sample event (local only): \(event.title)", category: .cloudKit, level: .info)
+        }
+    }
+
+    func handleRecordCreateCompletion(_ savedRecords: [CKRecord]?, _ error: Error?) {
+        DispatchQueue.main.async {
+            if let error = error {
+                print("⚠️ Error creating event: \(error.localizedDescription)")
+                self.activeAlert = .error(message: "Error creating event: \(error.localizedDescription)")
+                return
+            }
+            
+            guard let savedEvent = savedRecords?.first else {
+                print("⚠️ Event record not saved")
+                self.activeAlert = .error(message: "Event record not saved")
+                return
+            }
+            
+            print("✅ Event created successfully with ID: \(savedEvent.recordID.recordName)")
+            
+            // Log PDF attachment status
+            if let pdfRef = savedEvent["pdfReference"] as? CKRecord.Reference {
+                print("📄 DEBUG: Event created with PDF attachment, reference ID: \(pdfRef.recordID.recordName)")
+            } else {
+                print("📄 DEBUG: Event created without PDF attachment")
+            }
+            
+            // Update UI state
+            self.isEditing = false
+            self.activeAlert = .createSuccess(title: savedEvent["title"] as? String ?? "Unknown")
+            self.loadEvents() // Refresh events list
+        }
+    }
+    
+    func handleRecordUpdateCompletion(_ savedRecords: [CKRecord]?, _ error: Error?) {
+        DispatchQueue.main.async {
+            if let error = error {
+                print("⚠️ Error updating event: \(error.localizedDescription)")
+                self.activeAlert = .error(message: "Error updating event: \(error.localizedDescription)")
+                return
+            }
+            
+            guard let updatedEvent = savedRecords?.first else {
+                print("⚠️ Event record not updated")
+                self.activeAlert = .error(message: "Event record not updated")
+                return
+            }
+            
+            print("✅ Event updated successfully with ID: \(updatedEvent.recordID.recordName)")
+            
+            // Log PDF attachment status
+            if let pdfRef = updatedEvent["pdfReference"] as? CKRecord.Reference {
+                print("📄 DEBUG: Event updated with PDF attachment, reference ID: \(pdfRef.recordID.recordName)")
+            } else {
+                print("📄 DEBUG: Event updated without PDF attachment")
+            }
+            
+            // Update UI state
+            self.isEditing = false
+            self.selectedEvent = nil
+            self.selectedEventId = nil
+            self.activeAlert = .updateSuccess(title: updatedEvent["title"] as? String ?? "Unknown")
+            self.loadEvents() // Refresh events list
+        }
+    }
+
+    // MARK: - PDF Debugging Utilities
+    
+    func logPDFOperation(operation: String, details: [String: Any] = [:]) {
+        var logMessage = "📄 [PDF] \(operation)"
+        
+        if !details.isEmpty {
+            let detailsString = details.map { key, value in
+                return "\(key): \(value)"
+            }.joined(separator: ", ")
+            logMessage += " - \(detailsString)"
+        }
+        
+        print(logMessage)
+    }
+
+    // MARK: - PDF Viewing Functionality
+    
+    func viewPDF(for reference: CKRecord.Reference, eventId: String) {
+        print("📄 DEBUG: Starting to view PDF for event ID: \(eventId)")
+        logPDFOperation(operation: "View PDF Requested", details: [
+            "eventId": eventId,
+            "referenceId": reference.recordID.recordName
+        ])
+        
+        // Set up freeze detection for PDF loading
+        startFreezeDetection(
+            area: .pdfLoad,
+            timeoutSeconds: 10.0,
+            context: [
+                "operation": "viewPDF",
+                "eventId": eventId,
+                "referenceId": reference.recordID.recordName
+            ]
+        )
+        
+        // Clear any previously loaded PDF
+        self.currentPDFDocument = nil
+        self.pdfError = nil
+        self.showFullPDFView = true
+        
+        DispatchQueue.global(qos: .userInitiated).async {
+            // If this is the same PDF we're already viewing, don't reload it
+            if self.currentPDFDocument != nil && self.selectedEventId == eventId {
+                print("📄 PDF: Already loaded for event \(eventId)")
+                self.stopFreezeDetection(additionalContext: ["status": "already_loaded"])
+                return
+            }
+            
+            // Clear old PDF document before loading a new one
+            self.currentPDFDocument = nil
+            
+            self.logEventAction(
+                action: .viewPDF,
+                details: [
+                    "operation": "start_load",
+                    "eventId": eventId,
+                    "recordName": reference.recordID.recordName
+                ]
+            )
+            
+            // Add timing metrics for CloudKit operations
+            let cloudKitStartTime = Date()
+            
+            // Create a container for PDF data that can be cleaned up
+            autoreleasepool {
+                // Fetch the record from CloudKit
+                self.database.fetch(withRecordID: reference.recordID) { record, error in
+                    let cloudKitEndTime = Date()
+                    let cloudKitDuration = cloudKitEndTime.timeIntervalSince(cloudKitStartTime)
+                    
+                    // Create context info for logging
+                    var contextInfo: [String: Any] = [
+                        "cloudKitDuration": String(format: "%.2f", cloudKitDuration),
+                        "eventId": eventId
+                    ]
+                    
+                    if let error = error {
+                        // Handle error
+                        print("❌ PDF: Error fetching PDF record: \(error.localizedDescription)")
+                        
+                        contextInfo["status"] = "error"
+                        contextInfo["error"] = error.localizedDescription
+                        
+                        if let ckError = error as? CKError {
+                            contextInfo["ckErrorCode"] = ckError.code.rawValue
+                        }
+                        
+                        self.logPDFOperation(operation: "View PDF Error", details: contextInfo)
+                        
+                        DispatchQueue.main.async {
+                            self.pdfError = error
+                            self.stopFreezeDetection(additionalContext: contextInfo)
+                        }
+                        return
+                    }
+                    
+                    guard let record = record else {
+                        print("❌ PDF: No record found for PDF reference")
+                        
+                        contextInfo["status"] = "no_record"
+                        self.logPDFOperation(operation: "View PDF Error", details: contextInfo)
+                        
+                        DispatchQueue.main.async {
+                            self.pdfError = NSError(domain: "PDFViewer", code: -1, userInfo: [NSLocalizedDescriptionKey: "No record found for PDF reference"])
+                            self.stopFreezeDetection(additionalContext: contextInfo)
+                        }
+                        return
+                    }
+                    
+                    // Extract the PDF asset
+                    guard let pdfAsset = record["pdfFile"] as? CKAsset, let pdfURL = pdfAsset.fileURL else {
+                        print("❌ PDF: No PDF asset in record")
+                        
+                        contextInfo["status"] = "no_asset"
+                        self.logPDFOperation(operation: "View PDF Error", details: contextInfo)
+                        
+                        DispatchQueue.main.async {
+                            self.pdfError = NSError(domain: "PDFViewer", code: -2, userInfo: [NSLocalizedDescriptionKey: "No PDF asset in record"])
+                            self.stopFreezeDetection(additionalContext: contextInfo)
+                        }
+                        return
+                    }
+                    
+                    // Try to create PDF document
+                    let pdfLoadStartTime = Date()
+                    
+                    if let pdfDocument = PDFDocument(url: pdfURL) {
+                        let pdfLoadDuration = Date().timeIntervalSince(pdfLoadStartTime)
+                        
+                        contextInfo["pdfLoadDuration"] = String(format: "%.2f", pdfLoadDuration)
+                        contextInfo["pdfPageCount"] = pdfDocument.pageCount
+                        contextInfo["status"] = "success"
+                        
+                        print("✅ PDF: Successfully loaded document, pages: \(pdfDocument.pageCount)")
+                        self.logPDFOperation(operation: "View PDF Success", details: contextInfo)
+                        
+                        DispatchQueue.main.async {
+                            self.currentPDFDocument = pdfDocument
+                            self.stopFreezeDetection(additionalContext: contextInfo)
+                        }
+                    } else {
+                        // Try an alternate method using Data
+                        do {
+                            print("⚠️ PDF: URL loading failed, trying with data...")
+                            let pdfData = try Data(contentsOf: pdfURL)
+                            
+                            if let pdfDocument = PDFDocument(data: pdfData) {
+                                let pdfLoadDuration = Date().timeIntervalSince(pdfLoadStartTime)
+                                
+                                contextInfo["pdfLoadDuration"] = String(format: "%.2f", pdfLoadDuration)
+                                contextInfo["pdfPageCount"] = pdfDocument.pageCount
+                                contextInfo["status"] = "success_with_data_fallback"
+                                
+                                print("✅ PDF: Successfully loaded document (data fallback), pages: \(pdfDocument.pageCount)")
+                                self.logPDFOperation(operation: "View PDF Success (data fallback)", details: contextInfo)
+                                
+                                DispatchQueue.main.async {
+                                    self.currentPDFDocument = pdfDocument
+                                    self.stopFreezeDetection(additionalContext: contextInfo)
+                                }
+                            } else {
+                                print("❌ PDF: Failed to create document from data")
+                                
+                                contextInfo["status"] = "invalid_pdf"
+                                self.logPDFOperation(operation: "View PDF Error", details: contextInfo)
+                                
+                                DispatchQueue.main.async {
+                                    self.pdfError = NSError(domain: "PDFViewer", code: -3, userInfo: [NSLocalizedDescriptionKey: "Invalid PDF data"])
+                                    self.stopFreezeDetection(additionalContext: contextInfo)
+                                }
+                            }
+                        } catch {
+                            print("❌ PDF: Error reading data: \(error.localizedDescription)")
+                            
+                            contextInfo["status"] = "data_read_error"
+                            contextInfo["error"] = error.localizedDescription
+                            self.logPDFOperation(operation: "View PDF Error", details: contextInfo)
+                            
+                            DispatchQueue.main.async {
+                                self.pdfError = error
+                                self.stopFreezeDetection(additionalContext: contextInfo)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // Helper method to start freeze detection
+    func startFreezeDetection(area: FreezeDetection.Area, timeoutSeconds: TimeInterval, context: [String: Any]) {
+        self.activeDetectionArea = area
+        self.activeDetectionContext = context
+        self.freezeDetectionStartTime = Date()
+        
+        // Start a timer to detect if we're frozen
+        self.freezeDetectionTimer?.invalidate()
+        self.freezeDetectionTimer = Timer.scheduledTimer(withTimeInterval: timeoutSeconds, repeats: false) { _ in
+            self.handlePotentialFreeze()
+        }
+    }
+    
+    // Helper method to stop freeze detection
+    func stopFreezeDetection(additionalContext: [String: Any]? = nil) {
+        // Invalidate the timer
+        self.freezeDetectionTimer?.invalidate()
+        self.freezeDetectionTimer = nil
+        
+        // Log completion
+        if let startTime = self.freezeDetectionStartTime, let area = self.activeDetectionArea {
+            let duration = Date().timeIntervalSince(startTime)
+            
+            // Create a combined context with additional info
+            var combinedContext = self.activeDetectionContext ?? [:]
+            if let additionalContext = additionalContext {
+                for (key, value) in additionalContext {
+                    combinedContext[key] = value
+                }
+            }
+            
+            // Add duration
+            combinedContext["duration"] = String(format: "%.2f", duration)
+            
+            print("🔍 FREEZE DETECTION: Completed \(area) in \(String(format: "%.2f", duration))s")
+            self.logEventAction(action: .debugInfo, details: [
+                "operation": "freeze_detection_completed",
+                "area": "\(area)",
+                "duration": duration,
+                "context": combinedContext
+            ])
+        }
+        
+        // Clear state
+        self.activeDetectionArea = nil
+        self.activeDetectionContext = nil
+        self.freezeDetectionStartTime = nil
+    }
+    
+    // Handle potential UI freeze
+    func handlePotentialFreeze() {
+        guard let area = activeDetectionArea, let startTime = freezeDetectionStartTime else { return }
+        
+        let duration = Date().timeIntervalSince(startTime)
+        let contextInfo = activeDetectionContext ?? [:]
+        
+        print("⚠️ FREEZE DETECTION: Potential freeze in \(area) after \(String(format: "%.2f", duration))s")
+        
+        self.logEventAction(action: .freeze, details: [
+            "area": "\(area)",
+            "duration": duration,
+            "context": contextInfo
+        ])
+        
+        // Try to recover by resetting state
+        DispatchQueue.main.async {
+            switch area {
+            case .pdfLoad:
+                self.showFullPDFView = false
+                self.currentPDFDocument = nil
+                self.pdfError = NSError(domain: "PDFViewer", code: -999, userInfo: [NSLocalizedDescriptionKey: "PDF loading timed out"])
+            default:
+                break
+            }
+            
+            // Reset freeze detection state
+            self.activeDetectionArea = nil
+            self.activeDetectionContext = nil
+            self.freezeDetectionStartTime = nil
+            self.freezeDetectionTimer?.invalidate()
+            self.freezeDetectionTimer = nil
+        }
+    }
+}
+
+// MARK: - Previews
+
+struct EventManagementView_Previews: PreviewProvider {
+    static var previews: some View {
+        EventManagementView(isSpanish: .constant(false), refreshTrigger: .constant(false))
+    }
+}
+
+// Create a convenience initializer for CalendarEvent for our minimal version
+extension CalendarEvent {
+    // Convenience initializer for creating a minimal version
+    init(id: String, title: String, startDate: Date, endDate: Date, recordID: CKRecord.ID) {
+        self.id = id
+        self.title = title
+        self.startDate = startDate
+        self.endDate = endDate
+        self.recordID = recordID
+        self.location = nil
+        self.notes = nil
+        self.pdfReference = nil
+        self.isArchived = false
+        self.archiveDate = nil
+        self.linkURL = nil
+        
+        // Initialize recurrence fields with default values
+        self.isRecurrenceSeries = false
+        self.isRecurring = false
+        self.recurrenceCount = nil
+        self.recurrenceEndType = nil
+        self.recurrenceParent = nil
+        self.recurrenceType = nil
+        self.recurrenceWeekdays = nil
+    }
+}
+
+// Add this helper for time formatting:
+func formatEventTime(_ date: Date) -> String {
+    let formatter = DateFormatter()
+    formatter.timeStyle = .short
+    formatter.dateStyle = .none
+    return formatter.string(from: date)
+}
+
+// Add EventRowActions as a subview with hover state and polished buttons
+struct EventRowActions: View {
+    let event: CalendarEvent
+    let isHovered: Bool
+    let editEvent: (CalendarEvent) -> Void
+    let archiveEvent: (CalendarEvent) -> Void
+    let deleteEvent: (CalendarEvent) -> Void
+    let isSpanish: Bool
+    var body: some View {
+        HStack(spacing: 8) {
+            if event.pdfReference != nil {
+                Button(action: {
+                    // Use self to call the extension method we added
+                    self.viewPDF(for: event.pdfReference!, eventId: event.id)
+                }) {
+                    Image(systemName: "doc.richtext")
+                        .font(.system(size: 16, weight: .medium))
+                        .help(isSpanish ? "Ver PDF" : "View PDF")
+                }
+                .buttonStyle(.plain)
+            }
+            Button(action: { editEvent(event) }) {
+                Image(systemName: "pencil")
+                    .font(.system(size: 16, weight: .medium))
+                    .help(isSpanish ? "Editar" : "Edit")
+            }
+            .buttonStyle(.plain)
+            Button(action: { archiveEvent(event) }) {
+                Image(systemName: "archivebox")
+                    .font(.system(size: 16, weight: .medium))
+                    .help(isSpanish ? "Archivar" : "Archive")
+            }
+            .buttonStyle(.plain)
+            Button(action: { deleteEvent(event) }) {
+                Image(systemName: "trash")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(.red)
+                    .help(isSpanish ? "Eliminar" : "Delete")
+            }
+            .buttonStyle(.plain)
+        }
+        // Make buttons always visible
+    }
+}
+
+// Replace eventRow(_:) function with EventRow struct
+struct EventRow: View {
+    let event: CalendarEvent
+    let isSpanish: Bool
+    let editEvent: (CalendarEvent) -> Void
+    let archiveEvent: (CalendarEvent) -> Void
+    let deleteEvent: (CalendarEvent) -> Void
+    let isSelected: Bool
+    let selectEvent: (CalendarEvent) -> Void
+    @State private var isHovered = false
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading) {
+                Text(event.title)
+                    .fontWeight(.bold)
+                Text(DateFormatter.localizedString(from: event.startDate, dateStyle: .short, timeStyle: .short))
+                    .font(.caption)
+                    .foregroundColor(.green)
+                if let location = event.location, !location.isEmpty {
+                    Text(location)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+            Spacer()
+            EventRowActions(event: event, isHovered: isHovered, editEvent: editEvent, archiveEvent: archiveEvent, deleteEvent: deleteEvent, isSpanish: isSpanish)
+        }
+        .padding(.vertical, 6)
+        .padding(.horizontal, 4)
+        .background(isHovered ? Color.gray.opacity(0.08) : (isSelected ? Color.blue.opacity(0.1) : Color.clear))
+        .cornerRadius(6)
+        .onHover { hovering in isHovered = hovering }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            selectEvent(event)
+        }
+    }
+}
+
+// Make viewPDF accessible to EventRowActions
+extension EventRowActions {
+    func viewPDF(for reference: CKRecord.Reference, eventId: String) {
+        // This acts as a bridge to the main EventManagementView's viewPDF function
+        // We need to use a notification to trigger it because we can't directly access it
+        
+        NotificationCenter.default.post(
+            name: NSNotification.Name("ViewPDFRequested"),
+            object: nil,
+            userInfo: [
+                "reference": reference,
+                "eventId": eventId
+            ]
+        )
+    }
+}
+
+// Helper function to format dates for display
+func formatEventDate(_ date: Date) -> String {
+    let formatter = DateFormatter()
+    formatter.dateStyle = .short
+    formatter.timeStyle = .short
+    return formatter.string(from: date)
+}
+
+// Add this helper for time and date formatting
+func formatEventDateTime(_ date: Date) -> String {
+    let formatter = DateFormatter()
+    formatter.dateStyle = .medium
+    formatter.timeStyle = .short
+    return formatter.string(from: date)
+}
